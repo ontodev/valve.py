@@ -45,25 +45,29 @@ funct_names = ["CURIE", "from", "in", "list", "lookup", "split", "tree", "under"
 # ---- MISC HELPERS ----
 
 
-def build_datatype_ancestors(datatypes, ancestors, datatype):
+def build_datatype_ancestors(datatypes, datatype, ancestors=None):
     """"""
-    # TODO return values - avoid mutating an argument - return a list of ancestors
+    if not ancestors:
+        ancestors = []
     parent = datatypes[datatype].get("parent")
     if parent:
         ancestors.append(parent)
-        build_datatype_ancestors(datatypes, ancestors, parent)
-    ancestors.reverse()
+        ancestors.extend(build_datatype_ancestors(datatypes, parent, ancestors=ancestors))
+    return ancestors
 
 
-def build_table_descendants(tree, descendants, node):
+def build_table_descendants(tree, node, descendants=None):
     """"""
-    children = tree.get(node)
-    if not children:
-        return
+    if not descendants:
+        descendants = []
+    children = tree.get(node, [])
     for c in children:
         if c not in descendants:
             descendants.append(c)
-            build_table_descendants(tree, descendants, c)
+            add_descendants = build_table_descendants(tree, c, descendants=descendants)
+            if add_descendants:
+                descendants.extend(add_descendants)
+    return descendants
 
 
 def idx_to_a1(row, col):
@@ -1362,8 +1366,8 @@ def is_datatype(datatypes, datatype, value):
     :return: True if value is datatype or False otherwise, optional replacement when False
     """
     # First build a list of ancestors
-    ancestor_dts = [datatype]
-    build_datatype_ancestors(datatypes, ancestor_dts, datatype)
+    ancestor_dts = build_datatype_ancestors(datatypes, datatype)
+    ancestor_dts.insert(0, datatype)
     for dt in ancestor_dts:
         re_pattern = datatypes[dt].get("match")[1:-1]
         if re_pattern:
@@ -1567,8 +1571,8 @@ def under(trees, args, value):
 
     tree = trees[tree_name]
     top_level = args[1]
-    descendants = [top_level]
-    build_table_descendants(tree, descendants, top_level)
+    descendants = build_table_descendants(tree, top_level)
+    descendants.insert(0, top_level)
     if value not in descendants:
         return False, f"'{value}' is not under '{top_level}' from {tree_name}"
     return True, None
