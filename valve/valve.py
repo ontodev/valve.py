@@ -458,7 +458,7 @@ def build_tree(table, rows, col_idx, parent_column, child_column):
     :param col_idx: column index that the tree function appears in
     :param parent_column: name of column that 'Parent' values are in
     :param child_column: name of column that 'Child' values are in
-    :return: map of parent -> children, list of errors (if any)
+    :return: map of child -> parents, list of errors (if any)
     """
     errors = []
     tree = {}
@@ -484,14 +484,9 @@ def build_tree(table, rows, col_idx, parent_column, child_column):
                 }
             )
 
-        if parent in tree:
-            children = tree[parent]
-        else:
-            children = []
-
-        if child not in children:
-            children.append(child)
-        tree[parent] = children
+        if child not in tree:
+            tree[child] = set()
+        tree[child].add(parent)
 
     # Add to tree set
     return tree, errors
@@ -991,7 +986,6 @@ def validate_tree_type(
     table_details, field_table, fn_row_idx, fn_col_idx, tree_table, tree_column, tree_function
 ):
     """Validate a 'tree' field type and build the tree.
-
     :param table_details: dictionary of table name -> details (rows, fields)
     :param field_table: path to field table
     :param tree_table: name of table to build tree from
@@ -1624,6 +1618,26 @@ def split(config, args, value, lookup_value=None):
     return True, None
 
 
+def has_ancestor(tree, ancestor, node):
+    """Check whether a node has an ancestor (or self) in a tree.
+
+    :param tree: a dictionary from chidren to sets of parents
+    :param ancestor: the ancestor to look for
+    :param node: the node to start from
+    :return: True if it has the ancestor, False otherwise"""
+    if node == ancestor:
+        return True
+    if not node in tree:
+        return False
+    parents = tree[node]
+    if ancestor in parents:
+        return True
+    for parent in parents:
+        if has_ancestor(tree, ancestor, parent):
+            return True
+    return False
+
+
 def under(trees, args, value):
     """Method for VALVE 'under' function.
 
@@ -1640,14 +1654,12 @@ def under(trees, args, value):
     if tree_name not in trees:
         # This has already been validated for CLI users
         raise Exception(f"A tree for {tree_name} is not defined")
-
     tree = trees[tree_name]
-    top_level = args[1]
-    descendants = build_table_descendants(tree, top_level)
-    descendants.insert(0, top_level)
-    if value not in descendants:
-        return False, f"'{value}' is not under '{top_level}' from {tree_name}"
-    return True, None
+    ancestor = args[1]
+    if has_ancestor(tree, ancestor, value):
+        return True, None
+    else:
+        return False, f"'{value}' is not under '{ancestor}' from {tree_name}"
 
 
 # ---- MAIN METHODS ----
@@ -1689,7 +1701,7 @@ def validate_table(config, table, fields, rules):
                         errors.append(
                             {
                                 "table": table,
-                                "cell": idx_to_a1(row_idx + 1, col_idx),
+                                "cell": idx_to_a1(row_idx + 2, col_idx),
                                 "rule ID": "field:" + str(field_id),
                                 "level": "error",
                                 "message": err_message,
@@ -1772,7 +1784,7 @@ def main():
             field_table = path
         elif fname == "rule":
             rule_table = path
-        else:
+        elif path.endswith(".csv") or path.endswith(".tsv"):
             tables.append(path)
 
     if not datatype_table:
