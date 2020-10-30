@@ -6,6 +6,7 @@ import re
 import sys
 
 from argparse import ArgumentParser
+from collections import defaultdict
 from lark import Lark, Tree
 from lark.exceptions import UnexpectedInput
 
@@ -1833,6 +1834,40 @@ def main():
         rules = table_rules.get(tname, [])
         add_errors = validate_table(config, table, fields, rules)
         errors.extend(add_errors)
+
+    # Prototype for collecting distinct errors.
+    collect_distinct = False
+    if collect_distinct:
+        distinct = {}
+        err_rows = set()
+        for error in errors:
+            if error["message"] not in distinct:
+                distinct[error["message"]] = error
+
+        error_rows = defaultdict(list)
+        for error in distinct.values():
+            row = int(error["cell"][1:])
+            error_rows[row].append(error)
+        errors = []
+
+        table = "immune_exposure.tsv"
+        output = "examples"
+        with open(table, "r") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            with open(f"{output}.tsv", "w") as g:
+                writer = csv.DictWriter(g, reader.fieldnames, delimiter="\t", lineterminator="\n")
+                writer.writeheader()
+                row_idx = 2
+                new_idx = 2
+                for row in reader:
+                    if row_idx in error_rows:
+                        writer.writerow(row)
+                        for error in error_rows[row_idx]:
+                            error["table"] = output
+                            error["cell"] = error["cell"][0:1] + str(new_idx)
+                            errors.append(error)
+                        new_idx += 1
+                    row_idx += 1
 
     write_errors(args.output, errors)
     if errors:
