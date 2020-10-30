@@ -1,0 +1,3 @@
+Exposure Process Reported	Exposure Material ID	Exposure Material Reported	Disease Ontology ID	Disease Reported	Disease Stage Reported	Status	Note
+occurrence of disease						invalid	missing disease
+exposure to substance without evidence for disease	NCBITaxon:11103	Dengue virus				invalid	mismatched exposure material
