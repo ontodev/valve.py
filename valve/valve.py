@@ -190,7 +190,7 @@ def read_datatype_table(datatype_table):
         headers = reader.fieldnames
         missing = list(set(datatype_headers) - set(headers))
         if missing:
-            raise Exception(f"Missing required headers for 'datatype: " + ", ".join(missing))
+            raise Exception("Missing required headers for 'datatype: " + ", ".join(missing))
         idx = 2
         for row in reader:
             dt = row["datatype"]
@@ -341,7 +341,7 @@ def read_rule_table(config, rule_table):
         headers = reader.fieldnames
         missing = list(set(rule_headers) - set(headers))
         if missing:
-            raise Exception(f"Missing required headers for 'field': " + ", ".join(missing))
+            raise Exception("Missing required headers for 'field': " + ", ".join(missing))
 
         idx = 1
         for row in reader:
@@ -688,7 +688,7 @@ def validate_function(config, table_name, loc, function):
                     "cell": loc,
                     "rule": f"{funct_name} function error",
                     "level": "ERROR",
-                    "message": f"argument 1 must be a string",
+                    "message": "argument 1 must be a string",
                     "kill": True,
                 },
             )
@@ -778,7 +778,7 @@ def validate_function(config, table_name, loc, function):
                     "cell": loc,
                     "rule": f"{funct_name} function error",
                     "level": "ERROR",
-                    "message": f"argument 1 must be a string",
+                    "message": "argument 1 must be a string",
                     "kill": True,
                 },
             )
@@ -793,7 +793,7 @@ def validate_function(config, table_name, loc, function):
                     "cell": loc,
                     "rule": f"{funct_name} function error",
                     "level": "ERROR",
-                    "message": f"argument 2 must be a whole number",
+                    "message": "argument 2 must be a whole number",
                     "kill": True,
                 },
             )
@@ -884,7 +884,7 @@ def validate_function(config, table_name, loc, function):
                     "cell": loc,
                     "rule": f"{funct_name} function error",
                     "level": "ERROR",
-                    "message": f"argument 2 must be a string",
+                    "message": "argument 2 must be a string",
                     "kill": True,
                 },
             )
@@ -1031,7 +1031,7 @@ def validate_tree_type(
                 "cell": idx_to_a1(fn_row_idx, fn_col_idx),
                 "rule": "tree function error",
                 "level": "ERROR",
-                "message": f"the `tree` function must have exactly one argument",
+                "message": "the `tree` function must have exactly one argument",
                 "kill": True,
             }
         )
@@ -1465,7 +1465,7 @@ def meets_condition(
         if unparsed_condition == "not blank":
             if when_condition:
                 return False, f"because '{when_value}' is '{when_condition}', value cannot be blank"
-            return False, f"value cannot be blank"
+            return False, "value cannot be blank"
         if when_condition:
             return (
                 False,

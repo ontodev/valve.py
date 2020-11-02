@@ -33,4 +33,3 @@ def test_valve():
 
 def test_valve_distinct():
     run_valve("errors_distinct", True)
-
