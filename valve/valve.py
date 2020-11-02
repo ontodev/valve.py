@@ -12,7 +12,6 @@ from lark.exceptions import UnexpectedInput
 
 # TODO
 #  - handle numeric datatypes (later)
-#  - look into building docs from doc strings
 #  - eventually be able to pass in an excel file
 
 
@@ -81,6 +80,26 @@ def build_table_descendants(tree, node, descendants=None):
             if add_descendants:
                 descendants.extend(add_descendants)
     return descendants
+
+
+def has_ancestor(tree, ancestor, node):
+    """Check whether a node has an ancestor (or self) in a tree.
+
+    :param tree: a dictionary from chidren to sets of parents
+    :param ancestor: the ancestor to look for
+    :param node: the node to start from
+    :return: True if it has the ancestor, False otherwise"""
+    if node == ancestor:
+        return True
+    if node not in tree:
+        return False
+    parents = tree[node]
+    if ancestor in parents:
+        return True
+    for parent in parents:
+        if has_ancestor(tree, ancestor, parent):
+            return True
+    return False
 
 
 def idx_to_a1(row, col):
@@ -161,6 +180,7 @@ def read_datatype_table(datatype_table):
     sep = "\t"
     if datatype_table.endswith("csv"):
         sep = ","
+    table_name = os.path.splitext(os.path.basename(datatype_table))[0]
 
     # Read the datatypes from the sheet
     datatypes = {}
@@ -169,7 +189,7 @@ def read_datatype_table(datatype_table):
         headers = reader.fieldnames
         missing = list(set(datatype_headers) - set(headers))
         if missing:
-            raise Exception(f"Missing required headers for 'datatype: " + ", ".join(missing))
+            raise Exception("Missing required headers for 'datatype: " + ", ".join(missing))
         idx = 2
         for row in reader:
             dt = row["datatype"]
@@ -187,7 +207,7 @@ def read_datatype_table(datatype_table):
         if parent != "" and parent not in dt_names:
             errors.append(
                 {
-                    "table": datatype_table,
+                    "table": table_name,
                     "cell": idx_to_a1(idx, headers.index("parent") + 1),
                     "rule": "unknown parent datatype",
                     "message": "the parent datatype must be defined in the 'datatype' sheet",
@@ -199,7 +219,7 @@ def read_datatype_table(datatype_table):
         if not validate_level(level):
             errors.append(
                 {
-                    "table": datatype_table,
+                    "table": table_name,
                     "cell": idx_to_a1(idx, headers.index("level") + 1),
                     "rule": "unknown level",
                     "message": "the 'level' must be one of: ERROR, WARN, INFO",
@@ -220,6 +240,7 @@ def read_field_table(config, field_table):
     sep = "\t"
     if field_table.endswith("csv"):
         sep = ","
+    table_name = os.path.splitext(os.path.basename(field_table))[0]
 
     table_details = config["table_details"]
 
@@ -251,7 +272,7 @@ def read_field_table(config, field_table):
                 # This column already has an entry in field
                 errors.append(
                     {
-                        "table": field_table,
+                        "table": table_name,
                         "cell": idx_to_a1(idx, headers.index("column") + 1),
                         "rule": "duplicate column",
                         "message": "this column value is already defined in 'field'",
@@ -307,6 +328,7 @@ def read_rule_table(config, rule_table):
     sep = "\t"
     if rule_table.endswith("csv"):
         sep = ","
+    table_name = os.path.splitext(os.path.basename(rule_table))[0]
 
     table_columns = {
         table_name: details["fields"] for table_name, details in config["table_details"].items()
@@ -318,7 +340,7 @@ def read_rule_table(config, rule_table):
         headers = reader.fieldnames
         missing = list(set(rule_headers) - set(headers))
         if missing:
-            raise Exception(f"Missing required headers for 'field': " + ", ".join(missing))
+            raise Exception("Missing required headers for 'field': " + ", ".join(missing))
 
         idx = 1
         for row in reader:
@@ -332,7 +354,7 @@ def read_rule_table(config, rule_table):
             if when_table not in table_columns.keys():
                 errors.append(
                     {
-                        "table": rule_table,
+                        "table": table_name,
                         "cell": when_table_loc,
                         "rule": "unknown table",
                         "message": "the table must exist in the input",
@@ -343,7 +365,7 @@ def read_rule_table(config, rule_table):
                 if when_column not in table_columns[when_table]:
                     errors.append(
                         {
-                            "table": rule_table,
+                            "table": table_name,
                             "cell": when_column_loc,
                             "rule": "unknown column",
                             "message": f"the provided column must exist in '{when_table}'",
@@ -394,7 +416,7 @@ def read_rule_table(config, rule_table):
             if not validate_level(level):
                 errors.append(
                     {
-                        "table": rule_table,
+                        "table": table_name,
                         "cell": idx_to_a1(idx, headers.index("level") + 1),
                         "rule": "unknown level",
                         "message": "the 'level' must be one of: ERROR, WARN, INFO",
@@ -410,7 +432,7 @@ def read_rule_table(config, rule_table):
             if then_table not in table_columns.keys():
                 errors.append(
                     {
-                        "table": rule_table,
+                        "table": table_name,
                         "cell": then_table_loc,
                         "rule": "unknown table",
                         "message": "the table must exist in the input",
@@ -421,7 +443,7 @@ def read_rule_table(config, rule_table):
                 if then_column not in table_columns[then_table]:
                     errors.append(
                         {
-                            "table": rule_table,
+                            "table": table_name,
                             "cell": then_column_loc,
                             "rule": "unknown column",
                             "message": f"the provided column must exist in '{then_table}'",
@@ -433,6 +455,7 @@ def read_rule_table(config, rule_table):
             rules.append(
                 {
                     "when_condition": parsed_when_condition,
+                    "unparsed_when": when_condition,
                     "table": then_table,
                     "column": then_column,
                     "then_condition": parsed_then_condition,
@@ -451,10 +474,10 @@ def read_rule_table(config, rule_table):
 # ---- INPUT VALIDATION ----
 
 
-def build_tree(table, rows, col_idx, parent_column, child_column):
+def build_tree(table_name, rows, col_idx, parent_column, child_column):
     """Build a hierarchy for the `tree` function while validating the values.
 
-    :param table: table name
+    :param table_name: table name
     :param rows: table rows
     :param col_idx: column index that the tree function appears in
     :param parent_column: name of column that 'Parent' values are in
@@ -475,13 +498,12 @@ def build_tree(table, rows, col_idx, parent_column, child_column):
             # show an error on the parent value, but the parent still appears in the tree
             errors.append(
                 {
-                    "table": table,
+                    "table": table_name,
                     "cell": idx_to_a1(row_idx, col_idx + 1),
                     "rule ID": "field:" + str(row_idx),
-                    "rule": "value not in tree",
-                    "level": "error",
-                    "message": f"{parent} from {table}.{parent_column} does not exist in {table}."
-                    + child_column,
+                    "level": "ERROR",
+                    "message": f"'{parent}' from {table_name}.{parent_column} must exist in "
+                    f"{table_name}." + child_column,
                 }
             )
 
@@ -555,7 +577,7 @@ def validate_function(config, table_name, loc, function):
                 "table": table_name,
                 "cell": loc,
                 "rule": "unknown function",
-                "level": "error",
+                "level": "ERROR",
                 "message": f"function name ({funct_name}) must be one of: " + ",".join(funct_names),
                 "kill": True,
             },
@@ -573,7 +595,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": "CURIE must have exactly one argument",
                     "kill": True,
                 },
@@ -587,7 +609,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": err,
                     "kill": True,
                 },
@@ -603,7 +625,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": "from must have exactly one argument",
                     "kill": True,
                 },
@@ -617,7 +639,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": err,
                     "kill": True,
                 },
@@ -635,7 +657,7 @@ def validate_function(config, table_name, loc, function):
                         "table": table_name,
                         "cell": loc,
                         "rule": f"{funct_name} function error",
-                        "level": "error",
+                        "level": "ERROR",
                         "message": f"argument {x} must be a string",
                         "kill": True,
                     },
@@ -652,7 +674,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": "list must have exactly two arguments",
                     "kill": True,
                 },
@@ -664,8 +686,8 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
-                    "message": f"argument 1 must be a string",
+                    "level": "ERROR",
+                    "message": "argument 1 must be a string",
                     "kill": True,
                 },
             )
@@ -678,7 +700,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": err,
                     "kill": True,
                 },
@@ -694,7 +716,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": "lookup must have exactly two arguments",
                     "kill": True,
                 },
@@ -709,7 +731,7 @@ def validate_function(config, table_name, loc, function):
                         "table": table_name,
                         "cell": loc,
                         "rule": f"{funct_name} function error",
-                        "level": "error",
+                        "level": "ERROR",
                         "message": err,
                         "kill": True,
                     },
@@ -725,7 +747,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": f"the first table name ({table_name}) must be the same as "
                     f"the second table name ({table_name_2})",
                     "kill": True,
@@ -741,7 +763,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": "split must have at least four arguments",
                     "kill": True,
                 },
@@ -754,8 +776,8 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
-                    "message": f"argument 1 must be a string",
+                    "level": "ERROR",
+                    "message": "argument 1 must be a string",
                     "kill": True,
                 },
             )
@@ -769,8 +791,8 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
-                    "message": f"argument 2 must be a whole number",
+                    "level": "ERROR",
+                    "message": "argument 2 must be a whole number",
                     "kill": True,
                 },
             )
@@ -782,7 +804,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": f"split must include {funct_count} functions",
                     "kill": True,
                 },
@@ -798,7 +820,7 @@ def validate_function(config, table_name, loc, function):
                         "table": table_name,
                         "cell": loc,
                         "rule": f"{funct_name} function error",
-                        "level": "error",
+                        "level": "ERROR",
                         "message": err,
                         "kill": True,
                     },
@@ -815,7 +837,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": "under must have exactly two arguments",
                     "kill": True,
                 },
@@ -830,7 +852,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": err,
                     "kill": True,
                 },
@@ -846,7 +868,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": f"{tree_name} must be defined as a tree in 'field'",
                     "kill": True,
                 },
@@ -860,8 +882,8 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
-                    "message": f"argument 2 must be a string",
+                    "level": "ERROR",
+                    "message": "argument 2 must be a string",
                     "kill": True,
                 },
             )
@@ -876,7 +898,7 @@ def validate_function(config, table_name, loc, function):
                     "table": table_name,
                     "cell": loc,
                     "rule": f"{funct_name} function error",
-                    "level": "error",
+                    "level": "ERROR",
                     "message": f"argument 2 ({top_level}) must exist in tree {tree_name}",
                     "kill": True,
                 },
@@ -913,7 +935,7 @@ def validate_condition(config, table_name, loc, condition, parse_cond=True):
                 "table": table_name,
                 "cell": loc,
                 "rule": "invalid condition",
-                "level": "error",
+                "level": "ERROR",
                 "message": msg,
                 "kill": True,
             }
@@ -929,8 +951,8 @@ def validate_condition(config, table_name, loc, condition, parse_cond=True):
                     "table": table_name,
                     "cell": loc,
                     "rule": "unknown datatype",
-                    "level": "error",
-                    "message": f"datatype '{dt}' is not defined in the datatype table",
+                    "level": "ERROR",
+                    "message": f"datatype '{dt}' must be defined in the datatype table",
                     "kill": True,
                 }
             )
@@ -998,16 +1020,17 @@ def validate_tree_type(
     """
     errors = []
     args = tree_function["function"]["tree"]
+    table_name = os.path.splitext(os.path.basename(field_table))[0]
     if len(args) != 1:
         # tree(...) must have exactly one argument
         # logging.error("The `tree` function accepts exactly one argument")
         errors.append(
             {
-                "table": field_table,
+                "table": table_name,
                 "cell": idx_to_a1(fn_row_idx, fn_col_idx),
                 "rule": "tree function error",
-                "level": "error",
-                "message": f"the `tree` function must have exactly one argument",
+                "level": "ERROR",
+                "message": "the `tree` function must have exactly one argument",
                 "kill": True,
             }
         )
@@ -1017,10 +1040,10 @@ def validate_tree_type(
         # logging.error("The table in `tree` must be the same as the `table` value")
         errors.append(
             {
-                "table": field_table,
+                "table": table_name,
                 "cell": idx_to_a1(fn_row_idx, fn_col_idx),
                 "rule": "tree function error",
-                "level": "error",
+                "level": "ERROR",
                 "message": f"the table name provided in the `tree` function ({tree_table_name}) "
                 f"must be the same as the value in the 'table' column ({tree_table})",
                 "kill": True,
@@ -1399,7 +1422,7 @@ def is_datatype(datatypes, datatype, value):
 
 
 def meets_condition(
-    config, condition, unparsed_condition, value, when_value=None,
+    config, condition, unparsed_condition, value, when_condition=None, when_value=None
 ):
     """Determine if the value meets the condition.
 
@@ -1407,7 +1430,8 @@ def meets_condition(
     :param condition: parsed condition to check (as dict)
     :param unparsed_condition: unparsed text of condition for error messages
     :param value: value to check
-    :param when_value: lookup value, required only for 'lookup' function
+    :param when_value: "when value" to prompt checking rule
+    :param when_condition: "when condition" to prompt checking rule
     :return: True if value meets condition, error message on False
     """
     condition_type = list(condition.keys())[0]
@@ -1417,12 +1441,20 @@ def meets_condition(
         # Check if condition is met, potentially get a replacement
         value_meets_condition, replace = is_datatype(datatypes, datatype, value)
         if value_meets_condition is False:
-            return False, f"'{value}' is not of datatype '{unparsed_condition}'"
+            if when_condition:
+                return (
+                    False,
+                    f"because '{when_value}' is '{when_condition}', '{value}' must be of datatype "
+                    f"'{unparsed_condition}'",
+                )
+            return False, f"'{value}' must be of datatype '{unparsed_condition}'"
 
     elif condition_type == "function":
         success, err = run_function(config, condition["function"], value, lookup_value=when_value)
         if not success:
-            return False, f"{unparsed_condition} failed: {err}"
+            if when_condition:
+                return False, f"because '{when_value}' is '{when_condition}', {err}"
+            return False, err
 
     elif condition_type == "negation":
         # Negations may be one or more
@@ -1431,13 +1463,29 @@ def meets_condition(
                 # As long as one is "NOT" met, this passes
                 return True, None
         # If we get here, the negation conditions were not met
-        return False, f"'{value}' does not meet any of the criteria: {unparsed_condition}"
+        if unparsed_condition == "not blank":
+            if when_condition:
+                return False, f"because '{when_value}' is '{when_condition}', value cannot be blank"
+            return False, "value cannot be blank"
+        if when_condition:
+            return (
+                False,
+                f"because '{when_value}' is '{when_condition}', '{value}' must be "
+                f"{unparsed_condition}",
+            )
+        return False, f"'{value}' must be {unparsed_condition}"
 
     elif condition_type == "disjunction":
         for c in condition["disjunction"]:
             if meets_condition(config, c, "", value, when_value=when_value)[0]:
                 return True, None
-        return False, f"'{value}' does not meet any of the criteria: {unparsed_condition}"
+        if when_condition:
+            return (
+                False,
+                f"because '{when_value}' is '{when_condition}', '{value}' must meet one of: "
+                f"{unparsed_condition}",
+            )
+        return False, f"'{value}' must meet one of: {unparsed_condition}"
 
     else:
         # This should be prevented in validate_condition
@@ -1500,7 +1548,7 @@ def CURIE(table_details, args, value):
         return False, f"'{value}' is not a CURIE"
     value_prefix = value.split(":")[0]
     if value_prefix not in prefixes:
-        return False, f"prefix '{value_prefix}' is not in {table_name}.{column_name}"
+        return False, f"prefix '{value_prefix}' must be in {table_name}.{column_name}"
     return True, None
 
 
@@ -1516,7 +1564,7 @@ def in_set(args, value):
             valid = True
             break
     if not valid:
-        return False, f"'{value}' is not one of: " + ", ".join(args)
+        return False, f"'{value}' must be one of: " + ", ".join(args)
     return True, None
 
 
@@ -1534,7 +1582,7 @@ def from_table_column(table_details, args, value):
     source_rows = table_details[table_name]["rows"]
     allowed_values = [x[column_name] for x in source_rows if column_name in x]
     if value not in allowed_values:
-        return False, f"'{value}' is not in {table_name}.{column_name}"
+        return False, f"'{value}' must be in {table_name}.{column_name}"
     return True, None
 
 
@@ -1585,7 +1633,7 @@ def lookup(table_details, args, value, lookup_value):
             if value != check_value:
                 return False, f"'{value}' must be '{check_value}'"
             return True, None
-    return False, f"'{lookup_value}' not present in {table_name}.{column_name}"
+    return False, f"'{lookup_value}' must present in {table_name}.{column_name}"
 
 
 def split(config, args, value, lookup_value=None):
@@ -1604,7 +1652,7 @@ def split(config, args, value, lookup_value=None):
     split_count = int(args[1])
     value_split = value.split(split_char)
     if len(value_split) != split_count:
-        return False, f"value must have {split_count} elements when split on '{split_char}'"
+        return False, f"'{args[1]}' must have {split_count} elements when split on '{split_char}'"
     errs = []
     x = 0
     while x < split_count:
@@ -1615,28 +1663,8 @@ def split(config, args, value, lookup_value=None):
             errs.append(err)
         x += 1
     if errs:
-        return False, "\n".join(errs)
+        return False, " & ".join(errs)
     return True, None
-
-
-def has_ancestor(tree, ancestor, node):
-    """Check whether a node has an ancestor (or self) in a tree.
-
-    :param tree: a dictionary from chidren to sets of parents
-    :param ancestor: the ancestor to look for
-    :param node: the node to start from
-    :return: True if it has the ancestor, False otherwise"""
-    if node == ancestor:
-        return True
-    if not node in tree:
-        return False
-    parents = tree[node]
-    if ancestor in parents:
-        return True
-    for parent in parents:
-        if has_ancestor(tree, ancestor, parent):
-            return True
-    return False
 
 
 def under(trees, args, value):
@@ -1660,7 +1688,7 @@ def under(trees, args, value):
     if has_ancestor(tree, ancestor, value):
         return True, None
     else:
-        return False, f"'{value}' is not under '{ancestor}' from {tree_name}"
+        return False, f"'{value}' must be equal to or under '{ancestor}' from {tree_name}"
 
 
 # ---- VALIDATION ----
@@ -1710,7 +1738,7 @@ def collect_distinct(table_details, table, errors):
             if row_idx in error_rows.keys():
                 writer.writerow(row)
                 for error in error_rows[row_idx]:
-                    error["table"] = output
+                    error["table"] = table_name + "_distinct"
                     error["cell"] = error["cell"][0:1] + str(new_idx)
                     errors.append(error)
                 new_idx += 1
@@ -1732,6 +1760,7 @@ def validate_table(config, table, fields, rules):
     sep = "\t"
     if table.endswith("csv"):
         sep = ","
+    table_name = os.path.splitext(os.path.basename(table))[0]
     with open(table, "r") as f:
         reader = csv.DictReader(f, delimiter=sep)
         row_idx = 0
@@ -1753,10 +1782,10 @@ def validate_table(config, table, fields, rules):
                         field_id = fields[field]["field ID"]
                         errors.append(
                             {
-                                "table": table,
+                                "table": table_name,
                                 "cell": idx_to_a1(row_idx + 2, col_idx),
                                 "rule ID": "field:" + str(field_id),
-                                "level": "error",
+                                "level": "ERROR",
                                 "message": err_message,
                             }
                         )
@@ -1779,12 +1808,13 @@ def validate_table(config, table, fields, rules):
                                 rule["then_condition"],
                                 rule["unparsed_then"],
                                 check_value,
+                                when_condition=rule["unparsed_when"],
                                 when_value=value,
                             )
                             if not success:
                                 errors.append(
                                     {
-                                        "table": table,
+                                        "table": table_name,
                                         "cell": idx_to_a1(row_idx + 2, check_col_idx + 1),
                                         "rule ID": "rule:" + str(rule["rule ID"]),
                                         "rule": rule["message"],
@@ -1818,21 +1848,14 @@ def write_errors(output, errors):
         writer.writerows(errors)
 
 
-def main():
-    p = ArgumentParser()
-    p.add_argument(
-        "-D", "--directory", help="Directory containing config and tables", required=True
-    )
-    p.add_argument(
-        "-d",
-        "--distinct",
-        help="Collect the first of each distinct error messages and write to a separate table",
-        action="store_true",
-    )
-    p.add_argument("-o", "--output", help="CSV or TSV to write error messages to", required=True)
-    args = p.parse_args()
+def valve(source_dir, output, distinct=False):
+    """Main VALVE method.
 
-    source_dir = args.directory
+    :param source_dir: directory containing config files & tables to validate
+    :param output: path to output errors to
+    :param distinct: if True, collect distinct errors
+    :return: True if VALVE completed (with or without errors), False if VALVE configuration failed
+    """
     datatype_table = None
     field_table = None
     rule_table = None
@@ -1881,9 +1904,9 @@ def main():
         if "kill" in e:
             kill = True
     if kill:
-        write_errors(args.output, setup_errors)
+        write_errors(output, setup_errors)
         logging.critical(f"VALVE setup failed with {len(setup_errors)} errors!")
-        sys.exit(1)
+        return False
 
     config = {"datatypes": datatypes, "table_details": table_details, "trees": trees}
 
@@ -1901,16 +1924,36 @@ def main():
         add_errors.extend([x for x in setup_errors if x["table"] == tname])
         logging.info(f"{add_errors} errors found in {table}")
 
-        if add_errors and args.distinct:
+        if add_errors and distinct:
             # Update errors to only be distinct messages in a new table
             update_errors = collect_distinct(table_details, table, add_errors)
             errors.extend(update_errors)
-        elif not args.distinct:
+        elif not distinct:
             errors.extend(add_errors)
 
-    write_errors(args.output, errors)
+    write_errors(output, errors)
     if errors:
         logging.error(f"VALVE completed with {len(errors)} problems found!")
+    return True
+
+
+def main():
+    p = ArgumentParser()
+    p.add_argument(
+        "-D", "--directory", help="Directory containing config and tables", required=True
+    )
+    p.add_argument(
+        "-d",
+        "--distinct",
+        help="Collect the first of each distinct error messages and write to a separate table",
+        action="store_true",
+    )
+    p.add_argument("-o", "--output", help="CSV or TSV to write error messages to", required=True)
+    args = p.parse_args()
+
+    success = valve(args.directory, args.output, distinct=args.distinct)
+    if not success:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
