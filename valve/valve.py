@@ -6,6 +6,7 @@ import re
 import sys
 
 from argparse import ArgumentParser
+from collections import defaultdict
 from lark import Lark, Tree
 from lark.exceptions import UnexpectedInput
 
@@ -331,7 +332,7 @@ def read_rule_table(config, rule_table):
             if when_table not in table_columns.keys():
                 errors.append(
                     {
-                        "table": "rule",
+                        "table": rule_table,
                         "cell": when_table_loc,
                         "rule": "unknown table",
                         "message": "the table must exist in the input",
@@ -342,7 +343,7 @@ def read_rule_table(config, rule_table):
                 if when_column not in table_columns[when_table]:
                     errors.append(
                         {
-                            "table": "rule",
+                            "table": rule_table,
                             "cell": when_column_loc,
                             "rule": "unknown column",
                             "message": f"the provided column must exist in '{when_table}'",
@@ -409,7 +410,7 @@ def read_rule_table(config, rule_table):
             if then_table not in table_columns.keys():
                 errors.append(
                     {
-                        "table": "rule",
+                        "table": rule_table,
                         "cell": then_table_loc,
                         "rule": "unknown table",
                         "message": "the table must exist in the input",
@@ -420,7 +421,7 @@ def read_rule_table(config, rule_table):
                 if then_column not in table_columns[then_table]:
                     errors.append(
                         {
-                            "table": "rule",
+                            "table": rule_table,
                             "cell": then_column_loc,
                             "rule": "unknown column",
                             "message": f"the provided column must exist in '{then_table}'",
@@ -1662,7 +1663,59 @@ def under(trees, args, value):
         return False, f"'{value}' is not under '{ancestor}' from {tree_name}"
 
 
-# ---- MAIN METHODS ----
+# ---- VALIDATION ----
+
+
+def collect_distinct(table_details, table, errors):
+    """Collect distinct error messages and write the rows with distinct errors to a new table. The
+    new table will be [table_name]_distinct. Return the distinct errors with updated locations in
+    the new table.
+
+    :param table_details: table name -> details (rows, fields)
+    :param table: path to table with errors
+    :param errors: all errors from the table
+    :return: updated distinct errors from the table
+    """
+    distinct = {}
+    for error in errors:
+        if error["message"] not in distinct:
+            distinct[error["message"]] = error
+
+    logging.info(f"{len(distinct)} distinct error(s) found in {table}")
+
+    error_rows = defaultdict(list)
+    for error in distinct.values():
+        row = int(error["cell"][1:])
+        error_rows[row].append(error)
+    errors = []
+
+    basename = os.path.basename(table)
+    dirname = os.path.dirname(table)
+    table_name = os.path.splitext(basename)[0]
+    table_ext = os.path.splitext(basename)[1]
+    sep = "\t"
+    if table_ext == ".csv":
+        sep = ","
+    output = f"{dirname}/{table_name}_distinct{table_ext}"
+    logging.info("writing rows with errors to " + output)
+
+    fields = table_details[table_name]["fields"]
+    rows = table_details[table_name]["rows"]
+    with open(output, "w") as g:
+        writer = csv.DictWriter(g, fields, delimiter=sep, lineterminator="\n")
+        writer.writeheader()
+        row_idx = 2
+        new_idx = 2
+        for row in rows:
+            if row_idx in error_rows.keys():
+                writer.writerow(row)
+                for error in error_rows[row_idx]:
+                    error["table"] = output
+                    error["cell"] = error["cell"][0:1] + str(new_idx)
+                    errors.append(error)
+                new_idx += 1
+            row_idx += 1
+    return errors
 
 
 def validate_table(config, table, fields, rules):
@@ -1759,6 +1812,7 @@ def write_errors(output, errors):
             fieldnames=["table", "cell", "rule ID", "rule", "level", "message", "suggestion"],
             delimiter=sep,
             lineterminator="\n",
+            extrasaction="ignore",
         )
         writer.writeheader()
         writer.writerows(errors)
@@ -1766,8 +1820,16 @@ def write_errors(output, errors):
 
 def main():
     p = ArgumentParser()
-    p.add_argument("-D", "--directory", required=True)
-    p.add_argument("-o", "--output", required=True)
+    p.add_argument(
+        "-D", "--directory", help="Directory containing config and tables", required=True
+    )
+    p.add_argument(
+        "-d",
+        "--distinct",
+        help="Collect the first of each distinct error messages and write to a separate table",
+        action="store_true",
+    )
+    p.add_argument("-o", "--output", help="CSV or TSV to write error messages to", required=True)
     args = p.parse_args()
 
     source_dir = args.directory
@@ -1809,34 +1871,46 @@ def main():
 
     config["trees"] = trees
 
-    table_rules, add_errors = read_rule_table(config, rule_table,)
+    table_rules, add_errors = read_rule_table(config, rule_table)
     setup_errors.extend(add_errors)
 
     # Check for true setup errors and stop process if they exist
     kill = False
-    errors = []
+
     for e in setup_errors:
         if "kill" in e:
             kill = True
-            del e["kill"]
-        errors.append(e)
     if kill:
-        write_errors(args.output, errors)
-        logging.critical(f"VALVE setup failed with {len(errors)} errors!")
+        write_errors(args.output, setup_errors)
+        logging.critical(f"VALVE setup failed with {len(setup_errors)} errors!")
         sys.exit(1)
 
     config = {"datatypes": datatypes, "table_details": table_details, "trees": trees}
 
+    errors = []
     for table in tables:
+        logging.info("validating " + table)
         tname = os.path.splitext(os.path.basename(table))[0]
         fields = table_fields.get(tname, [])
         rules = table_rules.get(tname, [])
+
+        # Validate and return errors
         add_errors = validate_table(config, table, fields, rules)
-        errors.extend(add_errors)
+
+        # Add any non-kill errors that were found during setup
+        add_errors.extend([x for x in setup_errors if x["table"] == tname])
+        logging.info(f"{add_errors} errors found in {table}")
+
+        if add_errors and args.distinct:
+            # Update errors to only be distinct messages in a new table
+            update_errors = collect_distinct(table_details, table, add_errors)
+            errors.extend(update_errors)
+        elif not args.distinct:
+            errors.extend(add_errors)
 
     write_errors(args.output, errors)
     if errors:
-        logging.critical(f"VALVE completed with {len(errors)} problems found!")
+        logging.error(f"VALVE completed with {len(errors)} problems found!")
 
 
 if __name__ == "__main__":
