@@ -12,7 +12,6 @@ from lark.exceptions import UnexpectedInput
 
 # TODO
 #  - handle numeric datatypes (later)
-#  - look into building docs from doc strings
 #  - eventually be able to pass in an excel file
 
 
@@ -503,8 +502,8 @@ def build_tree(table_name, rows, col_idx, parent_column, child_column):
                     "cell": idx_to_a1(row_idx, col_idx + 1),
                     "rule ID": "field:" + str(row_idx),
                     "level": "ERROR",
-                    "message": f"'{parent}' from {table_name}.{parent_column} must exist in {table_name}."
-                    + child_column,
+                    "message": f"'{parent}' from {table_name}.{parent_column} must exist in "
+                    f"{table_name}." + child_column,
                 }
             )
 
@@ -1423,7 +1422,7 @@ def is_datatype(datatypes, datatype, value):
 
 
 def meets_condition(
-    config, condition, unparsed_condition, value, when_value=None, when_condition=None,
+    config, condition, unparsed_condition, value, when_condition=None, when_value=None
 ):
     """Determine if the value meets the condition.
 
@@ -1431,7 +1430,8 @@ def meets_condition(
     :param condition: parsed condition to check (as dict)
     :param unparsed_condition: unparsed text of condition for error messages
     :param value: value to check
-    :param when_value: lookup value, required only for 'lookup' function
+    :param when_value: "when value" to prompt checking rule
+    :param when_condition: "when condition" to prompt checking rule
     :return: True if value meets condition, error message on False
     """
     condition_type = list(condition.keys())[0]
@@ -1444,7 +1444,8 @@ def meets_condition(
             if when_condition:
                 return (
                     False,
-                    f"because '{when_value}' is '{when_condition}', '{value}' must be of datatype '{unparsed_condition}'",
+                    f"because '{when_value}' is '{when_condition}', '{value}' must be of datatype "
+                    f"'{unparsed_condition}'",
                 )
             return False, f"'{value}' must be of datatype '{unparsed_condition}'"
 
@@ -1469,7 +1470,8 @@ def meets_condition(
         if when_condition:
             return (
                 False,
-                f"because '{when_value}' is '{when_condition}', '{value}' must be {unparsed_condition}",
+                f"because '{when_value}' is '{when_condition}', '{value}' must be "
+                f"{unparsed_condition}",
             )
         return False, f"'{value}' must be {unparsed_condition}"
 
@@ -1480,7 +1482,8 @@ def meets_condition(
         if when_condition:
             return (
                 False,
-                f"because '{when_value}' is '{when_condition}', '{value}' must meet one of: {unparsed_condition}",
+                f"because '{when_value}' is '{when_condition}', '{value}' must meet one of: "
+                f"{unparsed_condition}",
             )
         return False, f"'{value}' must meet one of: {unparsed_condition}"
 
@@ -1805,8 +1808,8 @@ def validate_table(config, table, fields, rules):
                                 rule["then_condition"],
                                 rule["unparsed_then"],
                                 check_value,
-                                when_value=value,
                                 when_condition=rule["unparsed_when"],
+                                when_value=value,
                             )
                             if not success:
                                 errors.append(
