@@ -1,15 +1,22 @@
-import difflib
 import os
 
 from valve import valve
 
 
 def get_diff(actual, expected):
-    with open(actual) as f2:
-        actual_text = f2.readlines()
-    with open(expected) as f1:
-        expected_text = f1.readlines()
-    return list(difflib.unified_diff(actual_text, expected_text))[2:]
+    actual_lines = []
+    with open(actual) as f:
+        for line in f:
+            actual_lines.append(line.strip())
+    expected_lines = []
+    with open(expected) as f:
+        for line in f:
+            expected_lines.append(line.strip())
+    removed = list(set(expected_lines) - set(actual_lines))
+    added = list(set(actual_lines) - set(expected_lines))
+    removed = [f"---\t{x}" for x in removed]
+    added = [f"+++\t{x}" for x in added]
+    return removed + added
 
 
 def run_valve(output_name, distinct):
