@@ -1,4 +1,5 @@
 import os
+import shutil
 
 from valve import valve
 
@@ -20,18 +21,29 @@ def get_diff(actual, expected):
 
 
 def run_valve(output_name, distinct):
-    if not os.path.exists("build"):
-        os.mkdir("build")
-    actual_output = f"build/{output_name}.tsv"
-    expected_output = f"tests/resources/{output_name}.tsv"
-    valve.valve("tests/resources", actual_output, distinct=distinct)
-    diff = get_diff(actual_output, expected_output)
-    if diff:
-        print("The actual and expected outputs differ")
-        print()
-        for line in diff:
-            print(line)
-    assert not diff
+    try:
+        if not os.path.exists("build"):
+            os.mkdir("build")
+        if not os.path.exists("build/inputs"):
+            os.mkdir("build/inputs")
+        actual_output = f"build/{output_name}.tsv"
+        expected_output = f"tests/resources/{output_name}.tsv"
+        src_files = os.listdir("tests/resources/inputs")
+        for file_name in src_files:
+            full_file_name = os.path.join("tests/resources/inputs", file_name)
+            if os.path.isfile(full_file_name):
+                shutil.copy(full_file_name, "build/inputs/")
+        valve.valve("build/inputs", actual_output, distinct=distinct)
+        diff = get_diff(actual_output, expected_output)
+        if diff:
+            print("The actual and expected outputs differ for " + output_name)
+            print()
+            for line in diff:
+                print(line)
+        assert not diff
+    finally:
+        if os.path.exists("build"):
+            shutil.rmtree("build")
 
 
 def test_valve():
