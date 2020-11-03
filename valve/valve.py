@@ -526,7 +526,7 @@ def is_function(config, table_name, arg_pos, arg):
     """
     if not isinstance(arg, dict) or "function" not in arg:
         return False, f"argument {arg_pos} must be a function"
-    success, err = validate_function(config, table_name, "", arg["function"])
+    success, err = validate_function(config, table_name, "", arg)
     if not success:
         return False, err["message"]
     return True, None
