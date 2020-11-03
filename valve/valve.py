@@ -472,13 +472,22 @@ def read_rule_table(config, rule_table):
 
 # ---- INPUT VALIDATION ----
 
+
 def build_tree(
-    config, fn_loc, table_name, parent_column, child_column, add_tree_name=None, split_char="|"
+    config,
+    fn_row_idx,
+    fn_col_idx,
+    table_name,
+    parent_column,
+    child_column,
+    add_tree_name=None,
+    split_char="|",
 ):
     """Build a hierarchy for the `tree` function while validating the values.
 
     :param config: valve config dictionary
-    :param fn_loc: A1 location of tree function in 'field' table
+    :param fn_row_idx: row of tree function in 'field' table
+    :param fn_col_idx: column of tree function in 'field' table
     :param table_name: table name
     :param parent_column: name of column that 'Parent' values are in
     :param child_column: name of column that 'Child' values are in
@@ -498,7 +507,7 @@ def build_tree(
             errors.append(
                 {
                     "table": "field",
-                    "cell": fn_loc,
+                    "cell": idx_to_a1(fn_row_idx, fn_col_idx),
                     "rule": "tree not defined",
                     "level": "ERROR",
                     "message": f"{add_tree_name} must be defined before using it in a function",
@@ -535,7 +544,7 @@ def build_tree(
                     {
                         "table": table_name,
                         "cell": idx_to_a1(row_idx, col_idx + 1),
-                        "rule ID": "field:" + str(row_idx),
+                        "rule ID": "field:" + str(fn_row_idx),
                         "level": "ERROR",
                         "message": msg,
                     }
@@ -1068,7 +1077,8 @@ def validate_tree_type(
         return None, errors
 
     # first arg is always table.column
-    if "table" not in args[0]:
+    tree_arg = args.pop(0)
+    if "table" not in tree_arg:
         errors.append(
             {
                 "table": table_name,
@@ -1081,7 +1091,7 @@ def validate_tree_type(
         )
         return None, errors
 
-    tree_table_name = args[0]["table"]
+    tree_table_name = tree_arg["table"]
     if tree_table_name != tree_table:
         # logging.error("The table in `tree` must be the same as the `table` value")
         errors.append(
@@ -1097,25 +1107,35 @@ def validate_tree_type(
         )
         return None, errors
     else:
+        # Parse the rest of the args
         add_tree_name = None
         split_char = None
-        # TODO - validate these args
-        if len(args) == 2:
-            # If there are two args, the second is either a split or a tree to extend
-            if "table" in args[1]:
-                add_tree = args[1]
-                add_tree_name = f'{add_tree["table"]}.{add_tree["column"]}'
-            else:
-                split_char = args[1]
-        if len(args) == 3:
-            # If there are three args, the second is split and third is tree to extend
-            split_char = args[1]
-            add_tree = args[2]
-            add_tree_name = f'{add_tree["table"]}.{add_tree["column"]}'
-        child_column = args[0]["column"]
+        if args:
+            x = 0
+            while x < len(args):
+                arg = args[x]
+                if "split" in arg:
+                    split_char = arg["split"]
+                elif "table" in arg:
+                    add_tree_name = f'{arg["table"]}.{arg["column"]}'
+                else:
+                    errors.append(
+                        {
+                            "table": table_name,
+                            "cell": fn_loc,
+                            "rule": "tree function error",
+                            "level": "ERROR",
+                            "message": f"`tree` arguments must be table.column pair or split=CHAR",
+                            "kill": True,
+                        }
+                    )
+                    return None, errors
+                x += 1
+        child_column = tree_arg["column"]
         return build_tree(
             config,
-            fn_loc,
+            fn_row_idx,
+            fn_col_idx,
             tree_table,
             tree_column,
             child_column,
@@ -1137,7 +1157,9 @@ def parse_args(arg):
     found_label = False
     search_label = False
     search_field = False
+    search_named_arg = False
     search_int = False
+    arg_name = None
     table = None
     itm = None
 
@@ -1153,6 +1175,22 @@ def parse_args(arg):
 
         if search_int:
             return int(itm)
+
+        if itm == "named_arg":
+            search_named_arg = True
+            continue
+
+        if search_named_arg:
+            if not found_label and itm == "label":
+                found_label = True
+                continue
+            if not arg_name:
+                # Name always comes first
+                arg_name = itm
+                found_label = False
+                continue
+            else:
+                return {arg_name: itm}
 
         if itm == "field":
             # Field is a table.column pair
@@ -1398,8 +1436,9 @@ def parse(text):
         function: function_name "(" arguments ")" | function_name "()"
         function_name: WORD
         arguments: argument ("," argument)*
-        argument: field | label | integer | function
+        argument: field | named_arg | label | integer | function
         field: label "." label
+        named_arg: label "=" label
         datatype: label
         label: WORD | ESCAPED_STRING
         integer: INTEGER
