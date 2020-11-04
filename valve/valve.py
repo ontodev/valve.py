@@ -149,10 +149,11 @@ def tree2list(tree, indent_str, level=0):
 # ---- INPUT TABLES ----
 
 
-def get_table_details(tables):
+def get_table_details(tables, row_start=2):
     """Build a dictionary of table details.
 
     :param tables: list of table paths
+    :param row_start: row number that contents to validate start on
     :return: dict of table name -> {fields, rows}
     """
     table_details = {}
@@ -160,13 +161,14 @@ def get_table_details(tables):
         sep = "\t"
         if table.endswith("csv"):
             sep = ","
+        row_idx = row_start - 2
         with open(table, "r") as f:
             reader = csv.DictReader(f, delimiter=sep)
             table_name = os.path.splitext(os.path.basename(table))[0]
-            rows = []
-            for row in reader:
-                rows.append(row)
-            table_details[table_name] = {"fields": reader.fieldnames, "rows": rows}
+            table_details[table_name] = {
+                "fields": reader.fieldnames,
+                "rows": list(reader)[row_idx:],
+            }
     return table_details
 
 
@@ -229,11 +231,12 @@ def read_datatype_table(datatype_table):
     return datatypes, errors
 
 
-def read_field_table(config, field_table):
+def read_field_table(config, field_table, row_start=2):
     """Build a dictionary of fields.
 
     :param config: valve config dictionary containing table_details
     :param field_table: path to the 'field' table
+    :param row_start: row number that contents to validate start on
     :return: dictionary of table-name -> field-name -> types
     """
     errors = []
@@ -298,6 +301,7 @@ def read_field_table(config, field_table):
                         table,
                         column,
                         parsed_type,
+                        row_start=row_start,
                     )
                     errors.extend(add_errors)
                     if tree:
@@ -480,6 +484,7 @@ def build_tree(
     table_name,
     parent_column,
     child_column,
+    row_start=2,
     add_tree_name=None,
     split_char="|",
 ):
@@ -491,6 +496,7 @@ def build_tree(
     :param table_name: table name
     :param parent_column: name of column that 'Parent' values are in
     :param child_column: name of column that 'Child' values are in
+    :param row_start: row number that contents to validate start on
     :param add_tree_name: optional name of tree to add to
     :param split_char: character to split parent values on
     :return: map of child -> parents, list of errors (if any)
@@ -519,14 +525,14 @@ def build_tree(
 
     allowed_values = [row[child_column] for row in rows]
     allowed_values.extend(list(tree.keys()))
-    row_idx = 0
+    row_idx = row_start
     for row in rows:
-        row_idx += 1
         parent = row[parent_column]
         child = row[child_column]
         if not parent or parent.strip() == "":
             if child not in tree:
                 tree[child] = set()
+            row_idx += 1
             continue
         parents = [parent]
         if split_char:
@@ -552,6 +558,7 @@ def build_tree(
             if child not in tree:
                 tree[child] = set()
             tree[child].add(parent)
+        row_idx += 1
     return tree, errors
 
 
@@ -1046,7 +1053,14 @@ def validate_level(level):
 
 
 def validate_tree_type(
-    config, field_table, fn_row_idx, fn_col_idx, tree_table, tree_column, tree_function
+    config,
+    field_table,
+    fn_row_idx,
+    fn_col_idx,
+    tree_table,
+    tree_column,
+    tree_function,
+    row_start=2,
 ):
     """Validate a 'tree' field type and build the tree.
 
@@ -1057,6 +1071,7 @@ def validate_tree_type(
     :param fn_row_idx: row that 'tree' appears in from field
     :param fn_col_idx: column that 'tree' appears in from field
     :param tree_function: the parsed field type (tree function)
+    :param row_start: row number that contents to validate start on
     :return: tree dictionary or None on error, list of errors
     """
     errors = []
@@ -1139,6 +1154,7 @@ def validate_tree_type(
             tree_table,
             tree_column,
             child_column,
+            row_start=row_start,
             add_tree_name=add_tree_name,
             split_char=split_char,
         )
@@ -1849,13 +1865,14 @@ def collect_distinct(table_details, table, errors):
     return errors
 
 
-def validate_table(config, table, fields, rules):
+def validate_table(config, table, fields, rules, row_start=2):
     """Run VALVE validation on a table.
 
     :param config: valve config dictionary
     :param table: path to table
     :param fields: {field-name: type, ...}
     :param rules: dictionary of rules
+    :param row_start: row number that contents to validate start on
     :return: list of errors
     """
     errors = []
@@ -1866,7 +1883,7 @@ def validate_table(config, table, fields, rules):
     table_name = os.path.splitext(os.path.basename(table))[0]
     with open(table, "r") as f:
         reader = csv.DictReader(f, delimiter=sep)
-        row_idx = 0
+        row_idx = row_start
         for row in reader:
             col_idx = 1
             for field, value in row.items():
@@ -1886,7 +1903,7 @@ def validate_table(config, table, fields, rules):
                         errors.append(
                             {
                                 "table": table_name,
-                                "cell": idx_to_a1(row_idx + 2, col_idx),
+                                "cell": idx_to_a1(row_idx, col_idx),
                                 "rule ID": "field:" + str(field_id),
                                 "level": "ERROR",
                                 "message": err_message,
@@ -1904,7 +1921,7 @@ def validate_table(config, table, fields, rules):
                             column = rule["column"]
 
                             # Retrieve the "then" value to check if it meets the "then condition"
-                            check_value = table_details[table]["rows"][row_idx][column]
+                            check_value = table_details[table]["rows"][row_idx - row_start][column]
                             check_col_idx = table_details[table]["fields"].index(column)
                             success, err_message = meets_condition(
                                 config,
@@ -1918,7 +1935,7 @@ def validate_table(config, table, fields, rules):
                                 errors.append(
                                     {
                                         "table": table_name,
-                                        "cell": idx_to_a1(row_idx + 2, check_col_idx + 1),
+                                        "cell": idx_to_a1(row_idx, check_col_idx + 1),
                                         "rule ID": "rule:" + str(rule["rule ID"]),
                                         "rule": rule["message"],
                                         "level": rule["level"],
@@ -1951,11 +1968,12 @@ def write_errors(output, errors):
         writer.writerows(errors)
 
 
-def valve(source_dir, output, distinct=False):
+def valve(source_dir, output, row_start=2, distinct=False):
     """Main VALVE method.
 
     :param source_dir: directory containing config files & tables to validate
     :param output: path to output errors to
+    :param row_start: row number that contents to validate start on
     :param distinct: if True, collect distinct errors
     :return: True if VALVE completed (with or without errors), False if VALVE configuration failed
     """
@@ -1992,7 +2010,7 @@ def valve(source_dir, output, distinct=False):
 
     config = {"table_details": table_details, "datatypes": datatypes}
 
-    table_fields, trees, add_errors = read_field_table(config, field_table)
+    table_fields, trees, add_errors = read_field_table(config, field_table, row_start=row_start)
     setup_errors.extend(add_errors)
 
     config["trees"] = trees
@@ -2021,7 +2039,7 @@ def valve(source_dir, output, distinct=False):
         rules = table_rules.get(tname, [])
 
         # Validate and return errors
-        add_errors = validate_table(config, table, fields, rules)
+        add_errors = validate_table(config, table, fields, rules, row_start=row_start)
 
         # Add any non-kill errors that were found during setup
         add_errors.extend([x for x in setup_errors if x["table"] == tname])
@@ -2051,10 +2069,13 @@ def main():
         help="Collect the first of each distinct error messages and write to a separate table",
         action="store_true",
     )
+    p.add_argument(
+        "-r", "--row-start", help="Index of first row in tables to validate", type=int, default=2
+    )
     p.add_argument("-o", "--output", help="CSV or TSV to write error messages to", required=True)
     args = p.parse_args()
 
-    success = valve(args.directory, args.output, distinct=args.distinct)
+    success = valve(args.directory, args.output, row_start=args.row_start, distinct=args.distinct)
     if not success:
         sys.exit(1)
 
