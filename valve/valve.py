@@ -153,6 +153,7 @@ def get_table_details(tables, row_start=2):
     """Build a dictionary of table details.
 
     :param tables: list of table paths
+    :param row_start: row number that contents to validate start on
     :return: dict of table name -> {fields, rows}
     """
     table_details = {}
@@ -235,6 +236,7 @@ def read_field_table(config, field_table, row_start=2):
 
     :param config: valve config dictionary containing table_details
     :param field_table: path to the 'field' table
+    :param row_start: row number that contents to validate start on
     :return: dictionary of table-name -> field-name -> types
     """
     errors = []
@@ -494,6 +496,7 @@ def build_tree(
     :param table_name: table name
     :param parent_column: name of column that 'Parent' values are in
     :param child_column: name of column that 'Child' values are in
+    :param row_start: row number that contents to validate start on
     :param add_tree_name: optional name of tree to add to
     :param split_char: character to split parent values on
     :return: map of child -> parents, list of errors (if any)
@@ -1068,6 +1071,7 @@ def validate_tree_type(
     :param fn_row_idx: row that 'tree' appears in from field
     :param fn_col_idx: column that 'tree' appears in from field
     :param tree_function: the parsed field type (tree function)
+    :param row_start: row number that contents to validate start on
     :return: tree dictionary or None on error, list of errors
     """
     errors = []
@@ -1868,6 +1872,7 @@ def validate_table(config, table, fields, rules, row_start=2):
     :param table: path to table
     :param fields: {field-name: type, ...}
     :param rules: dictionary of rules
+    :param row_start: row number that contents to validate start on
     :return: list of errors
     """
     errors = []
@@ -1968,6 +1973,7 @@ def valve(source_dir, output, row_start=2, distinct=False):
 
     :param source_dir: directory containing config files & tables to validate
     :param output: path to output errors to
+    :param row_start: row number that contents to validate start on
     :param distinct: if True, collect distinct errors
     :return: True if VALVE completed (with or without errors), False if VALVE configuration failed
     """
