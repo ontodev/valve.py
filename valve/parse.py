@@ -2,6 +2,12 @@ from js2py.pyjs import *
 from lark import Lark, Transformer
 
 
+"""
+Auto-generated parser & transformer for VALVE grammar.
+See more: https://github.com/lark-parser/lark/blob/master/docs/nearley.md
+"""
+
+
 grammar = """
 !n_dqstring: xrule_0 xrule_1 xrule_0-> alias_0
 !n_sqstring: xrule_2 xrule_3 xrule_2-> alias_1
