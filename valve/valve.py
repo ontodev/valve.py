@@ -242,8 +242,6 @@ def read_field_table(config, field_table):
         sep = ","
     table_name = os.path.splitext(os.path.basename(field_table))[0]
 
-    table_details = config["table_details"]
-
     # Dict of table name -> field types in that table
     table_fields = {}
     trees = {}
@@ -293,7 +291,7 @@ def read_field_table(config, field_table):
                     # This does not get added to field_types,
                     # but a tree is built and added to global trees
                     tree, add_errors = validate_tree_type(
-                        table_details,
+                        config,
                         field_table,
                         idx,
                         headers.index("type") + 1,
@@ -303,6 +301,7 @@ def read_field_table(config, field_table):
                     )
                     errors.extend(add_errors)
                     if tree:
+                        # Add tree to config for further tree iterations
                         trees[f"{table}.{column}"] = tree
                         config["trees"] = trees
                     continue
@@ -474,44 +473,85 @@ def read_rule_table(config, rule_table):
 # ---- INPUT VALIDATION ----
 
 
-def build_tree(table_name, rows, col_idx, parent_column, child_column):
+def build_tree(
+    config,
+    fn_row_idx,
+    fn_col_idx,
+    table_name,
+    parent_column,
+    child_column,
+    add_tree_name=None,
+    split_char="|",
+):
     """Build a hierarchy for the `tree` function while validating the values.
 
+    :param config: valve config dictionary
+    :param fn_row_idx: row of tree function in 'field' table
+    :param fn_col_idx: column of tree function in 'field' table
     :param table_name: table name
-    :param rows: table rows
-    :param col_idx: column index that the tree function appears in
     :param parent_column: name of column that 'Parent' values are in
     :param child_column: name of column that 'Child' values are in
+    :param add_tree_name: optional name of tree to add to
+    :param split_char: character to split parent values on
     :return: map of child -> parents, list of errors (if any)
     """
     errors = []
-    tree = {}
+
+    table_details = config["table_details"]
+    rows = table_details[table_name]["rows"]
+    col_idx = table_details[table_name]["fields"].index(parent_column)
+    trees = config.get("trees", {})
+    tree = defaultdict(set)
+    if add_tree_name:
+        if add_tree_name not in trees:
+            errors.append(
+                {
+                    "table": "field",
+                    "cell": idx_to_a1(fn_row_idx, fn_col_idx),
+                    "rule": "tree not defined",
+                    "level": "ERROR",
+                    "message": f"{add_tree_name} must be defined before using it in a function",
+                    "kill": True,
+                }
+            )
+            return None, errors
+        tree = trees.get(add_tree_name, defaultdict(set))
+
     allowed_values = [row[child_column] for row in rows]
+    allowed_values.extend(list(tree.keys()))
     row_idx = 0
     for row in rows:
         row_idx += 1
         parent = row[parent_column]
         child = row[child_column]
         if not parent or parent.strip() == "":
+            if child not in tree:
+                tree[child] = set()
             continue
-        if parent not in allowed_values:
-            # show an error on the parent value, but the parent still appears in the tree
-            errors.append(
-                {
-                    "table": table_name,
-                    "cell": idx_to_a1(row_idx, col_idx + 1),
-                    "rule ID": "field:" + str(row_idx),
-                    "level": "ERROR",
-                    "message": f"'{parent}' from {table_name}.{parent_column} must exist in "
-                    f"{table_name}." + child_column,
-                }
-            )
-
-        if child not in tree:
-            tree[child] = set()
-        tree[child].add(parent)
-
-    # Add to tree set
+        parents = [parent]
+        if split_char:
+            parents = parent.split(split_char)
+        for parent in parents:
+            if parent not in allowed_values:
+                # show an error on the parent value, but the parent still appears in the tree
+                msg = (
+                    f"'{parent}' from {table_name}.{parent_column} must exist in {table_name}."
+                    + child_column
+                )
+                if add_tree_name:
+                    msg += f" or {add_tree_name} tree"
+                errors.append(
+                    {
+                        "table": table_name,
+                        "cell": idx_to_a1(row_idx, col_idx + 1),
+                        "rule ID": "field:" + str(fn_row_idx),
+                        "level": "ERROR",
+                        "message": msg,
+                    }
+                )
+            if child not in tree:
+                tree[child] = set()
+            tree[child].add(parent)
     return tree, errors
 
 
@@ -526,7 +566,7 @@ def is_function(config, table_name, arg_pos, arg):
     """
     if not isinstance(arg, dict) or "function" not in arg:
         return False, f"argument {arg_pos} must be a function"
-    success, err = validate_function(config, table_name, "", arg["function"])
+    success, err = validate_function(config, table_name, "", arg)
     if not success:
         return False, err["message"]
     return True, None
@@ -1006,10 +1046,11 @@ def validate_level(level):
 
 
 def validate_tree_type(
-    table_details, field_table, fn_row_idx, fn_col_idx, tree_table, tree_column, tree_function
+    config, field_table, fn_row_idx, fn_col_idx, tree_table, tree_column, tree_function
 ):
     """Validate a 'tree' field type and build the tree.
-    :param table_details: dictionary of table name -> details (rows, fields)
+
+    :param config:
     :param field_table: path to field table
     :param tree_table: name of table to build tree from
     :param tree_column: name of column in table to build tree from
@@ -1021,27 +1062,42 @@ def validate_tree_type(
     errors = []
     args = tree_function["function"]["tree"]
     table_name = os.path.splitext(os.path.basename(field_table))[0]
-    if len(args) != 1:
-        # tree(...) must have exactly one argument
-        # logging.error("The `tree` function accepts exactly one argument")
+    fn_loc = idx_to_a1(fn_row_idx, fn_col_idx)
+    if 1 > len(args) > 3:
         errors.append(
             {
                 "table": table_name,
-                "cell": idx_to_a1(fn_row_idx, fn_col_idx),
+                "cell": fn_loc,
                 "rule": "tree function error",
                 "level": "ERROR",
-                "message": "the `tree` function must have exactly one argument",
+                "message": "the `tree` function must have between one and three arguments",
                 "kill": True,
             }
         )
         return None, errors
-    tree_table_name = args[0]["table"]
+
+    # first arg is always table.column
+    tree_arg = args.pop(0)
+    if "table" not in tree_arg:
+        errors.append(
+            {
+                "table": table_name,
+                "cell": fn_loc,
+                "rule": "tree function error",
+                "level": "ERROR",
+                "message": "the first argument of the `tree` function must be a table.column pair",
+                "kill": True,
+            }
+        )
+        return None, errors
+
+    tree_table_name = tree_arg["table"]
     if tree_table_name != tree_table:
         # logging.error("The table in `tree` must be the same as the `table` value")
         errors.append(
             {
                 "table": table_name,
-                "cell": idx_to_a1(fn_row_idx, fn_col_idx),
+                "cell": fn_loc,
                 "rule": "tree function error",
                 "level": "ERROR",
                 "message": f"the table name provided in the `tree` function ({tree_table_name}) "
@@ -1051,13 +1107,40 @@ def validate_tree_type(
         )
         return None, errors
     else:
-        child_column = args[0]["column"]
+        # Parse the rest of the args
+        add_tree_name = None
+        split_char = None
+        if args:
+            x = 0
+            while x < len(args):
+                arg = args[x]
+                if "split" in arg:
+                    split_char = arg["split"]
+                elif "table" in arg:
+                    add_tree_name = f'{arg["table"]}.{arg["column"]}'
+                else:
+                    errors.append(
+                        {
+                            "table": table_name,
+                            "cell": fn_loc,
+                            "rule": "tree function error",
+                            "level": "ERROR",
+                            "message": f"`tree` arguments must be table.column pair or split=CHAR",
+                            "kill": True,
+                        }
+                    )
+                    return None, errors
+                x += 1
+        child_column = tree_arg["column"]
         return build_tree(
+            config,
+            fn_row_idx,
+            fn_col_idx,
             tree_table,
-            table_details[tree_table]["rows"],
-            table_details[tree_table]["fields"].index(tree_column),
             tree_column,
             child_column,
+            add_tree_name=add_tree_name,
+            split_char=split_char,
         )
 
 
@@ -1074,7 +1157,9 @@ def parse_args(arg):
     found_label = False
     search_label = False
     search_field = False
+    search_named_arg = False
     search_int = False
+    arg_name = None
     table = None
     itm = None
 
@@ -1090,6 +1175,22 @@ def parse_args(arg):
 
         if search_int:
             return int(itm)
+
+        if itm == "named_arg":
+            search_named_arg = True
+            continue
+
+        if search_named_arg:
+            if not found_label and itm == "label":
+                found_label = True
+                continue
+            if not arg_name:
+                # Name always comes first
+                arg_name = itm
+                found_label = False
+                continue
+            else:
+                return {arg_name: itm}
 
         if itm == "field":
             # Field is a table.column pair
@@ -1332,11 +1433,12 @@ def parse(text):
         negation: "not" expression
         disjunction: expression ("or" expression)+
         type: function | datatype
-        function: function_name "(" arguments ")"
+        function: function_name "(" arguments ")" | function_name "()"
         function_name: WORD
         arguments: argument ("," argument)*
-        argument: field | label | integer | function
+        argument: field | named_arg | label | integer | function
         field: label "." label
+        named_arg: label "=" label
         datatype: label
         label: WORD | ESCAPED_STRING
         integer: INTEGER
@@ -1351,7 +1453,8 @@ def parse(text):
     try:
         t = parser.parse(text)
     except UnexpectedInput as e:
-        return None, e.get_context(text)
+        print(text)
+        raise e
 
     tree_list_unparsed = tree2list(t, ">")
     tree_list_unparsed = [x for x in tree_list_unparsed if x != "\n" and x != "\t"]
