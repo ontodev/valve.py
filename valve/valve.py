@@ -142,7 +142,7 @@ def get_table_details(tables, row_start=2):
             table_name = os.path.splitext(os.path.basename(table))[0]
             table_details[table_name] = {
                 "fields": reader.fieldnames,
-                "rows": list(reader)[row_start - 1 :],
+                "rows": list(reader)[row_start - 2 :],
             }
     return table_details
 
@@ -1293,7 +1293,7 @@ def valve(source_dir, output, row_start=2, distinct=False):
         raise RuntimeError("Additional tables to validate must be included in " + source_dir)
 
     setup_errors = []
-    table_details = get_table_details(tables)
+    table_details = get_table_details(tables, row_start=row_start)
 
     datatypes, add_errors = read_datatype_table(datatype_table)
     setup_errors.extend(add_errors)
