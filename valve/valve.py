@@ -1110,9 +1110,8 @@ def under(trees, args, value):
     tree = trees[tree_name]
     ancestor = args[1]
     direct = False
-    if len(args) == 3:
-        if args[2]["value"].lower() == "true":
-            direct = True
+    if len(args) == 3 and args[2]["value"].lower() == "true":
+        direct = True
     if has_ancestor(tree, ancestor, value, direct=direct):
         return True, None
     else:
