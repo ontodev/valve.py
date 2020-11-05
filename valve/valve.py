@@ -137,13 +137,12 @@ def get_table_details(tables, row_start=2):
         sep = "\t"
         if table.endswith("csv"):
             sep = ","
-        row_idx = row_start - 2
         with open(table, "r") as f:
             reader = csv.DictReader(f, delimiter=sep)
             table_name = os.path.splitext(os.path.basename(table))[0]
             table_details[table_name] = {
                 "fields": reader.fieldnames,
-                "rows": list(reader)[row_idx:],
+                "rows": list(reader)[row_start - 1 :],
             }
     return table_details
 
@@ -276,7 +275,9 @@ def read_field_table(config, field_table, row_start=2):
                     # Special processing for `tree` function
                     # This does not get added to field_types,
                     # but a tree is built and added to global trees
-                    tree, add_errors = validate_tree_type(config, idx, table, column, parsed_type, row_start=row_start)
+                    tree, add_errors = validate_tree_type(
+                        config, idx, table, column, parsed_type, row_start=row_start
+                    )
                     for err in add_errors:
                         if "table" not in err:
                             err["table"] = (table_name,)
@@ -467,7 +468,14 @@ def read_rule_table(config, rule_table):
 
 
 def build_tree(
-    config, fn_row_idx, table_name, parent_column, child_column, row_start=2, add_tree_name=None, split_char="|",
+    config,
+    fn_row_idx,
+    table_name,
+    parent_column,
+    child_column,
+    row_start=2,
+    add_tree_name=None,
+    split_char="|",
 ):
     """Build a hierarchy for the `tree` function while validating the values.
 
@@ -1163,73 +1171,69 @@ def validate_table(config, table, fields, rules, row_start=2):
     """
     errors = []
     table_details = config["table_details"]
-    sep = "\t"
-    if table.endswith("csv"):
-        sep = ","
     table_name = os.path.splitext(os.path.basename(table))[0]
-    with open(table, "r") as f:
-        reader = csv.DictReader(f, delimiter=sep)
-        row_idx = row_start
-        for row in reader:
-            col_idx = 1
-            for field, value in row.items():
-                if not value:
-                    value = ""
-                # Check for field type
-                if field in fields:
-                    # Get the expected field type
-                    # This will be validated based on the given datatypes
-                    parsed_type = fields[field]["parsed"]
-                    unparsed = fields[field]["unparsed"]
+    row_idx = row_start
+    for row in table_details[table_name]["rows"]:
+        col_idx = 1
+        for field, value in row.items():
+            if not value:
+                value = ""
+            # Check for field type
+            if field in fields:
+                # Get the expected field type
+                # This will be validated based on the given datatypes
+                parsed_type = fields[field]["parsed"]
+                unparsed = fields[field]["unparsed"]
 
-                    # all values in this field must match the type
-                    mc, err_message = meets_condition(config, parsed_type, unparsed, value)
-                    if not mc:
-                        field_id = fields[field]["field ID"]
-                        errors.append(
-                            {
-                                "table": table_name,
-                                "cell": idx_to_a1(row_idx, col_idx),
-                                "rule ID": "field:" + str(field_id),
-                                "level": "ERROR",
-                                "message": err_message,
-                            }
+                # all values in this field must match the type
+                mc, err_message = meets_condition(config, parsed_type, unparsed, value)
+                if not mc:
+                    field_id = fields[field]["field ID"]
+                    errors.append(
+                        {
+                            "table": table_name,
+                            "cell": idx_to_a1(row_idx, col_idx),
+                            "rule ID": "field:" + str(field_id),
+                            "level": "ERROR",
+                            "message": err_message,
+                        }
+                    )
+            # Check for rules
+            if field in rules:
+                # Check if the value meets any of the conditions
+                for rule in rules[field]:
+                    # Run meets_condition without logging
+                    # as the then-cond check is only run if the value matches the type
+                    if meets_condition(config, rule["when_condition"], "", value)[0]:
+                        # The "when" value meets the condition - validate the "then" value
+                        table = rule["table"]
+                        column = rule["column"]
+
+                        # Retrieve the "then" value to check if it meets the "then condition"
+                        check_value = table_details[table]["rows"][row_idx - row_start][column]
+                        check_col_idx = table_details[table]["fields"].index(column)
+                        success, err_message = meets_condition(
+                            config,
+                            rule["then_condition"],
+                            rule["unparsed_then"],
+                            check_value,
+                            when_condition=rule["unparsed_when"],
+                            when_value=value,
                         )
-                # Check for rules
-                if field in rules:
-                    # Check if the value meets any of the conditions
-                    for rule in rules[field]:
-                        # Run meets_condition without logging
-                        # as the then-cond check is only run if the value matches the type
-                        if meets_condition(config, rule["when_condition"], "", value)[0]:
-                            # The "when" value meets the condition - validate the "then" value
-                            table = rule["table"]
-                            column = rule["column"]
-
-                            # Retrieve the "then" value to check if it meets the "then condition"
-                            check_value = table_details[table]["rows"][row_idx - row_start][column]
-                            check_col_idx = table_details[table]["fields"].index(column)
-                            success, err_message = meets_condition(
-                                config,
-                                rule["then_condition"],
-                                rule["unparsed_then"],
-                                check_value,
-                                when_condition=rule["unparsed_when"],
-                                when_value=value,
+                        if not success:
+                            errors.append(
+                                {
+                                    "table": table_name,
+                                    "cell": idx_to_a1(row_idx, check_col_idx + 1),
+                                    "rule ID": "rule:" + str(rule["rule ID"]),
+                                    "rule": rule["message"],
+                                    "level": rule["level"],
+                                    "message": err_message,
+                                }
                             )
-                            if not success:
-                                errors.append(
-                                    {
-                                        "table": table_name,
-                                        "cell": idx_to_a1(row_idx, check_col_idx + 1),
-                                        "rule ID": "rule:" + str(rule["rule ID"]),
-                                        "rule": rule["message"],
-                                        "level": rule["level"],
-                                        "message": err_message,
-                                    }
-                                )
-                col_idx += 1
-            row_idx += 1
+            col_idx += 1
+        row_idx += 1
+
     return errors
 
 
