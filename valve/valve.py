@@ -82,20 +82,23 @@ def build_table_descendants(tree, node, descendants=None):
     return descendants
 
 
-def has_ancestor(tree, ancestor, node):
+def has_ancestor(tree, ancestor, node, direct=False):
     """Check whether a node has an ancestor (or self) in a tree.
 
-    :param tree: a dictionary from chidren to sets of parents
+    :param tree: a dictionary from children to sets of parents
     :param ancestor: the ancestor to look for
     :param node: the node to start from
+    :param direct: if True, only look at direct parents, not full ancestors
     :return: True if it has the ancestor, False otherwise"""
-    if node == ancestor:
+    if node == ancestor and not direct:
         return True
     if node not in tree:
         return False
     parents = tree[node]
     if ancestor in parents:
         return True
+    if direct:
+        return False
     for parent in parents:
         if has_ancestor(tree, ancestor, parent):
             return True
@@ -668,9 +671,9 @@ def validate_function(config, function):
 
     elif funct_name == "under":
         # under(tree, value)
-        if len(args) != 2:
-            # must have exactly two values
-            return False, "`under` must have exactly two arguments"
+        if len(args) != 2 and len(args) != 3:
+            # can have two or three args
+            return False, "`under` must have either two or three arguments"
         tree_loc = args[0]
         if tree_loc["type"] != "field":
             return False, f"`under` argument 1 must be a table.column pair"
@@ -684,6 +687,14 @@ def validate_function(config, function):
         if not isinstance(top_level, str):
             # second value must be a string
             return False, "`under` argument 2 must be a string"
+
+        if len(args) == 3:
+            if args[2]["type"] != "named_arg":
+                return False, "if provided, `under` argument 3 must be `direct=bool`"
+            if args[2]["name"] != "direct":
+                return False, "`under` only accepts named argument `direct`"
+            if args[2]["value"].lower() not in ["true", "false"]:
+                return False, "in `under` argument 3, the value of `direct=` must be true or false"
 
         tree = trees[tree_name]
         tree_values = list(tree.keys())
@@ -1098,9 +1109,15 @@ def under(trees, args, value):
         raise Exception(f"A tree for {tree_name} is not defined")
     tree = trees[tree_name]
     ancestor = args[1]
-    if has_ancestor(tree, ancestor, value):
+    direct = False
+    if len(args) == 3:
+        if args[2]["value"].lower() == "true":
+            direct = True
+    if has_ancestor(tree, ancestor, value, direct=direct):
         return True, None
     else:
+        if direct:
+            return False, f"'{value}' must be a direct subclass of '{ancestor}' from {tree_name}"
         return False, f"'{value}' must be equal to or under '{ancestor}' from {tree_name}"
 
 
