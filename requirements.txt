@@ -1,3 +1,4 @@
 flake8
 lark-parser
 pytest
+js2py

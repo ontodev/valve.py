@@ -7,8 +7,8 @@ import sys
 
 from argparse import ArgumentParser
 from collections import defaultdict
-from lark import Lark, Tree
-from lark.exceptions import UnexpectedInput
+from .parse import parse
+
 
 # TODO
 #  - handle numeric datatypes (later)
@@ -120,30 +120,6 @@ def idx_to_a1(row, col):
         column_label = chr(mod + 64) + column_label
 
     return f"{column_label}{row}"
-
-
-def tree2list(tree, indent_str, level=0):
-    """Adaption of Lark.Tree pretty to return a list. Levels are represented by the indent_str as an
-    element that preceeds the item. For example, an item on level 3 will be preceded by a list
-    element that is 3 indent_str characters.
-
-    :param Lark.Tree tree: parsed tree to convert to list
-    :param indent_str: character to represent indents in the tree
-    :param level: current level, or 0
-    :return: a list of the tree with indent elements separating different levels
-    """
-    if len(tree.children) == 1 and not isinstance(tree.children[0], Tree):
-        itm = tree.children[0].rstrip('"').lstrip('""')
-        return [indent_str * level, tree._pretty_label(), "\t", itm, "\n"]
-
-    tree_list = [indent_str * level, tree._pretty_label(), "\n"]
-    for n in tree.children:
-        if isinstance(n, Tree):
-            tree_list += tree2list(n, indent_str, level=level + 1)
-        else:
-            tree_list += [indent_str * (level + 1), "%s" % (n,), "\n"]
-
-    return tree_list
 
 
 # ---- INPUT TABLES ----
@@ -282,28 +258,33 @@ def read_field_table(config, field_table, row_start=2):
                 )
             else:
                 # Parse the field type
-                parsed_type, add_errors = validate_condition(
-                    config, field_table, idx_to_a1(idx, headers.index("type") + 1), row["type"]
-                )
-                errors.extend(add_errors)
+                parsed_type = parse(row["type"])
+                success, err = validate_condition(config, parsed_type)
                 if not parsed_type:
                     # Type could not be parsed - grammar issue
+                    errors.append(
+                        {
+                            "table": table_name,
+                            "cell": idx_to_a1(idx, headers.index("type") + 1),
+                            "rule": "invalid type",
+                            "message": err,
+                            "kill": True,
+                        }
+                    )
                     continue
-                if "function" in parsed_type and "tree" in parsed_type["function"]:
+                if parsed_type["type"] == "function" and parsed_type["name"] == "tree":
                     # Special processing for `tree` function
                     # This does not get added to field_types,
                     # but a tree is built and added to global trees
-                    tree, add_errors = validate_tree_type(
-                        config,
-                        field_table,
-                        idx,
-                        headers.index("type") + 1,
-                        table,
-                        column,
-                        parsed_type,
-                        row_start=row_start,
-                    )
-                    errors.extend(add_errors)
+                    tree, add_errors = validate_tree_type(config, idx, table, column, parsed_type, row_start=row_start)
+                    for err in add_errors:
+                        if "table" not in err:
+                            err["table"] = (table_name,)
+                            err["cell"] = (headers.index("type") + 1,)
+                            err["rule"] = "tree function error"
+                            err["level"] = "ERROR"
+                            err["kill"] = True
+                        errors.append(err)
                     if tree:
                         # Add tree to config for further tree iterations
                         trees[f"{table}.{column}"] = tree
@@ -378,15 +359,19 @@ def read_rule_table(config, rule_table):
 
             # Validate the when condition
             when_condition = row["when condition"]
-            parsed_when_condition, add_errors = validate_condition(
-                config,
-                rule_table,
-                idx_to_a1(idx, headers.index("when condition") + 1),
-                when_condition,
-            )
-            if not parsed_when_condition:
+            parsed_when_condition = parse(when_condition)
+            success, err = validate_condition(config, parsed_when_condition)
+            if not success:
                 # when-cond could not be parsed
-                errors.extend(add_errors)
+                errors.append(
+                    {
+                        "table": table_name,
+                        "cell": idx_to_a1(idx, headers.index("when condition") + 1),
+                        "rule": "invalid condition",
+                        "message": err,
+                        "kill": True,
+                    }
+                )
                 continue
 
             # Get the existing columns -> rules for given table
@@ -403,15 +388,19 @@ def read_rule_table(config, rule_table):
 
             # Validate the then condition
             then_condition = row["then condition"]
-            parsed_then_condition, add_errors = validate_condition(
-                config,
-                rule_table,
-                idx_to_a1(idx, headers.index("then condition") + 1),
-                then_condition,
-            )
-            if not parsed_then_condition:
+            parsed_then_condition = parse(then_condition)
+            success, err = validate_condition(config, parsed_then_condition)
+            if not success:
                 # then-cond could not be parsed
-                errors.extend(add_errors)
+                errors.append(
+                    {
+                        "table": table_name,
+                        "cell": idx_to_a1(idx, headers.index("then condition") + 1),
+                        "rule": "invalid condition",
+                        "message": err,
+                        "kill": True,
+                    }
+                )
                 continue
 
             # Validate the message level
@@ -478,21 +467,12 @@ def read_rule_table(config, rule_table):
 
 
 def build_tree(
-    config,
-    fn_row_idx,
-    fn_col_idx,
-    table_name,
-    parent_column,
-    child_column,
-    row_start=2,
-    add_tree_name=None,
-    split_char="|",
+    config, fn_row_idx, table_name, parent_column, child_column, row_start=2, add_tree_name=None, split_char="|",
 ):
     """Build a hierarchy for the `tree` function while validating the values.
 
     :param config: valve config dictionary
     :param fn_row_idx: row of tree function in 'field' table
-    :param fn_col_idx: column of tree function in 'field' table
     :param table_name: table name
     :param parent_column: name of column that 'Parent' values are in
     :param child_column: name of column that 'Child' values are in
@@ -511,14 +491,7 @@ def build_tree(
     if add_tree_name:
         if add_tree_name not in trees:
             errors.append(
-                {
-                    "table": "field",
-                    "cell": idx_to_a1(fn_row_idx, fn_col_idx),
-                    "rule": "tree not defined",
-                    "level": "ERROR",
-                    "message": f"{add_tree_name} must be defined before using it in a function",
-                    "kill": True,
-                }
+                {"message": f"{add_tree_name} must be defined before using it in a function"}
             )
             return None, errors
         tree = trees.get(add_tree_name, defaultdict(set))
@@ -562,23 +535,6 @@ def build_tree(
     return tree, errors
 
 
-def is_function(config, table_name, arg_pos, arg):
-    """Check if a provided arg is a valid valve function.
-
-    :param config: valve config dictionary
-    :param table_name: name of table that function is defined in
-    :param arg_pos: position of arg in parent function
-    :param arg: parsed arg
-    :return: True on success or False on fail, error message on fail
-    """
-    if not isinstance(arg, dict) or "function" not in arg:
-        return False, f"argument {arg_pos} must be a function"
-    success, err = validate_function(config, table_name, "", arg)
-    if not success:
-        return False, err["message"]
-    return True, None
-
-
 def is_table_column(table_details, arg_pos, arg):
     """Check if a provided arg is a valid table.column pair ({"table": str, "column": str}). The
     table should exist in table_details, and the column should exist in the details for that table.
@@ -605,438 +561,161 @@ def is_table_column(table_details, arg_pos, arg):
     return True, None
 
 
-def validate_function(config, table_name, loc, function):
+def validate_function(config, function):
     """Validate a function.
 
     :param config: valve config dictionary
-    :param table_name: name of table that the function is defined in
-    :param loc: A1 cell location of function
     :param function: parsed function as dictionary
     :return: parsed function or None on error, error table entry on error
     """
     errors = []
-    table_details = config["table_details"]
-    funct_name = list(function["function"].keys())[0]
+    funct_name = function["name"]
     if funct_name not in funct_names:
-        return (
-            None,
-            {
-                "table": table_name,
-                "cell": loc,
-                "rule": "unknown function",
-                "level": "ERROR",
-                "message": f"function name ({funct_name}) must be one of: " + ",".join(funct_names),
-                "kill": True,
-            },
-        )
+        return False, f"function name ({funct_name}) must be one of: " + ",".join(funct_names)
 
     # Special validation for each function
-    args = function["function"][funct_name]
+    args = function["args"]
     if funct_name == "CURIE":
         # CURIE(table.column)
         if len(args) != 1:
             # must have exactly one value
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": "CURIE must have exactly one argument",
-                    "kill": True,
-                },
-            )
-        success, err = is_table_column(table_details, 1, args[0])
-        if not success:
+            return False, "`CURIE` must have exactly one argument"
+        if args[0]["type"] != "field":
             # value must be a table.column dict
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": err,
-                    "kill": True,
-                },
-            )
+            return False, "`CURIE` argument must be a table.column pair"
 
     elif funct_name == "from":
         # from(table.column)
         if len(args) != 1:
             # must have exactly one value
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": "from must have exactly one argument",
-                    "kill": True,
-                },
-            )
-        success, err = is_table_column(table_details, 1, args[0])
-        if not success:
+            return False, "`from` must have exactly one argument"
+        if args[0]["type"] != "field":
             # value must be a table.column dict
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": err,
-                    "kill": True,
-                },
-            )
+            return False, "`from` argument must be a table.column pair"
 
     elif funct_name == "in":
-        # in(x, y, z, ...)
+        # in("x", "y", "z", ...)
         x = 1
         for arg in args:
             # all args must be strings, not dicts
             if not isinstance(arg, str):
-                return (
-                    None,
-                    {
-                        "table": table_name,
-                        "cell": loc,
-                        "rule": f"{funct_name} function error",
-                        "level": "ERROR",
-                        "message": f"argument {x} must be a string",
-                        "kill": True,
-                    },
-                )
+                return False, f"`in` argument {x} must be a string"
         x += 1
 
     elif funct_name == "list":
         # list(split, funct)
         if len(args) != 2:
             # must have exactly two values
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": "list must have exactly two arguments",
-                    "kill": True,
-                },
-            )
+            return False, "`list` must have exactly two arguments"
         if not isinstance(args[0], str):
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": "argument 1 must be a string",
-                    "kill": True,
-                },
-            )
+            return False, "`list` argument 1 must be a string"
+
         # second value must be a valid function
-        success, err = is_function(config, table_name, 2, args[1])
+        success, err = validate_function(config, args[1])
         if not success:
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": err,
-                    "kill": True,
-                },
-            )
+            return False, "`list` argument 2 must be a valid function: " + err
 
     elif funct_name == "lookup":
         # lookup(table.column, table.column)
         # Validate that the arguments are table-columns and the tables are the same
         if len(args) != 2:
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": "lookup must have exactly two arguments",
-                    "kill": True,
-                },
-            )
+            return False, "`lookup` must have exactly two arguments"
         x = 0
         while x < 2:
-            success, err = is_table_column(table_details, x + 1, args[x])
-            if not success:
-                return (
-                    None,
-                    {
-                        "table": table_name,
-                        "cell": loc,
-                        "rule": f"{funct_name} function error",
-                        "level": "ERROR",
-                        "message": err,
-                        "kill": True,
-                    },
-                )
+            if args[x]["type"] != "field":
+                return False, f"`lookup` argument {x} must be a table.column pair"
             x += 1
 
         table_name = args[0]["table"]
         table_name_2 = args[1]["table"]
         if table_name != table_name_2:
             return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": f"the first table name ({table_name}) must be the same as "
-                    f"the second table name ({table_name_2})",
-                    "kill": True,
-                },
+                False,
+                f"the first table name ({table_name}) must be the same as "
+                f"the second table name ({table_name_2})",
             )
 
     elif funct_name == "split":
-        # split(split, int, funct, funct,)
+        # split(split, int, funct, funct, ...)
         if len(args) < 4:
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": "split must have at least four arguments",
-                    "kill": True,
-                },
-            )
+            return False, "`split` must have at least four arguments"
         if not isinstance(args.pop(0), str):
             # first value must be a string
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": "argument 1 must be a string",
-                    "kill": True,
-                },
-            )
+            return False, "`split` argument 1 must be a string"
         try:
             funct_count = int(args.pop(0))
         except ValueError:
             # second value must be a number (passed as str)
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": "argument 2 must be a whole number",
-                    "kill": True,
-                },
-            )
+            return False, "`split` argument 2 must be a whole number"
         if len(args) != funct_count:
             # rem args must be equal to the last value
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": f"split must include {funct_count} functions",
-                    "kill": True,
-                },
-            )
+            return False, f"`split` must include {funct_count} functions"
         x = 3
         for arg in args:
             # rem args must be valid functions
-            success, err = is_function(config, table_name, x, arg)
+            success, err = validate_function(config, arg)
             if not success:
-                return (
-                    None,
-                    {
-                        "table": table_name,
-                        "cell": loc,
-                        "rule": f"{funct_name} function error",
-                        "level": "ERROR",
-                        "message": err,
-                        "kill": True,
-                    },
-                )
+                return False, f"`split` argument {x} must be a valid function: " + err
             x += 1
 
     elif funct_name == "under":
         # under(tree, value)
         if len(args) != 2:
             # must have exactly two values
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": "under must have exactly two arguments",
-                    "kill": True,
-                },
-            )
+            return False, "`under` must have exactly two arguments"
         tree_loc = args[0]
-        success, err = is_table_column(table_details, 1, tree_loc)
-        if not success:
-            # first value must be a table.column dict
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": err,
-                    "kill": True,
-                },
-            )
+        if tree_loc["type"] != "field":
+            return False, f"`under` argument 1 must be a table.column pair"
 
         trees = config["trees"]
         tree_name = f'{tree_loc["table"]}.{tree_loc["column"]}'
         if tree_name not in trees:
             # tree must have already been defined
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": f"{tree_name} must be defined as a tree in 'field'",
-                    "kill": True,
-                },
-            )
+            return False, f"`under` argument 1 '{tree_name}' must be defined as a tree in 'field'"
         top_level = args[1]
         if not isinstance(top_level, str):
             # second value must be a string
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": "argument 2 must be a string",
-                    "kill": True,
-                },
-            )
+            return False, "`under` argument 2 must be a string"
+
         tree = trees[tree_name]
         tree_values = list(tree.keys())
         tree_values.extend(list(itertools.chain.from_iterable(tree.values())))
         if top_level not in tree_values:
             # second value must exist in tree
-            return (
-                None,
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": f"{funct_name} function error",
-                    "level": "ERROR",
-                    "message": f"argument 2 ({top_level}) must exist in tree {tree_name}",
-                    "kill": True,
-                },
-            )
+            return False, f"`under` argument 2 ({top_level}) must exist in tree {tree_name}"
 
     return function, errors
 
 
-def validate_condition(config, table_name, loc, condition, parse_cond=True):
+def validate_condition(config, parsed_condition):
     """Validate a condition.
 
     :param config: valve config dictionary
-    :param table_name: name of table that condition is defined in
-    :param condition: text or parsed condition
-    :param loc: A1 location of condition
-    :param parse_cond: if true, parse a text condition
-    :return: None on error or parsed condition on success, error messages
+    :param parsed_condition: parsed condition to validate
+    :return: None on error or parsed condition on success, error message
     """
-    errors = []
-    if parse_cond:
-        parsed_condition, err = parse(condition)
-    else:
-        parsed_condition, err = condition, None
-
     datatypes = config["datatypes"]
+    cond_type = parsed_condition["type"]
 
-    if not parsed_condition:
-        # Condition could not be parsed - unexpected input
-        msg = f"unable to parse '{condition}' due to unexpected input"
-        if err:
-            msg = f"unable to parse due to unexpected input:\n{err}"
-        errors.append(
-            {
-                "table": table_name,
-                "cell": loc,
-                "rule": "invalid condition",
-                "level": "ERROR",
-                "message": msg,
-                "kill": True,
-            }
-        )
-        return None, errors
-
-    # Validate specifics
-    if "datatype" in parsed_condition:
-        dt = parsed_condition["datatype"]
+    if cond_type == "datatype":
+        dt = parsed_condition["name"]
         if dt not in datatypes.keys():
-            errors.append(
-                {
-                    "table": table_name,
-                    "cell": loc,
-                    "rule": "unknown datatype",
-                    "level": "ERROR",
-                    "message": f"datatype '{dt}' must be defined in the datatype table",
-                    "kill": True,
-                }
-            )
-            return None, errors
-    elif "disjunction" in parsed_condition:
-        valid = True
+            return False, f"datatype '{dt}' must be defined in the datatype table"
+    elif cond_type == "function":
+        return validate_function(config, parsed_condition)
+    elif cond_type == "negation":
+        return validate_condition(config, parsed_condition["expression"])
+    elif cond_type == "disjunction":
         # Parse each sub-condition and check if they are valid
-        for sub_cond in parsed_condition["disjunction"]:
-            parsed_sub, add_errors = validate_condition(
-                config, table_name, loc, sub_cond, parse_cond=False
-            )
-            errors.extend(add_errors)
-            if not parsed_sub:
-                valid = False
-        if not valid:
-            return None, errors
-    elif "function" in parsed_condition:
-        parsed_function, err = validate_function(config, table_name, loc, parsed_condition)
-        if not parsed_function:
-            errors.append(err)
-            return None, errors
-        return parsed_function, errors
-    elif "negation" in parsed_condition:
-        valid = True
-        for sub_cond in parsed_condition["negation"]:
-            parsed_sub, add_errors = validate_condition(
-                config, table_name, loc, sub_cond, parse_cond=False
-            )
-            errors.extend(add_errors)
-            if not parsed_sub:
-                valid = False
-        if not valid:
-            return None, errors
+        for sub_cond in parsed_condition["disjuncts"]:
+            success, err = validate_condition(config, sub_cond)
+            if not success:
+                # Break on error
+                return False, err
     else:
-        # Something is wrong with the Lark grammar
-        raise Exception("Unknown expression: " + str(parsed_condition))
-    return parsed_condition, errors
+        raise Exception("Unknown condition type: " + cond_type)
+
+    return True, None
 
 
 def validate_level(level):
@@ -1052,57 +731,28 @@ def validate_level(level):
     return True
 
 
-def validate_tree_type(
-    config,
-    field_table,
-    fn_row_idx,
-    fn_col_idx,
-    tree_table,
-    tree_column,
-    tree_function,
-    row_start=2,
-):
+def validate_tree_type(config, fn_row_idx, tree_table, tree_column, tree_function, row_start=2):
     """Validate a 'tree' field type and build the tree.
 
     :param config:
-    :param field_table: path to field table
     :param tree_table: name of table to build tree from
     :param tree_column: name of column in table to build tree from
     :param fn_row_idx: row that 'tree' appears in from field
-    :param fn_col_idx: column that 'tree' appears in from field
     :param tree_function: the parsed field type (tree function)
     :param row_start: row number that contents to validate start on
     :return: tree dictionary or None on error, list of errors
     """
     errors = []
-    args = tree_function["function"]["tree"]
-    table_name = os.path.splitext(os.path.basename(field_table))[0]
-    fn_loc = idx_to_a1(fn_row_idx, fn_col_idx)
+    args = tree_function["args"]
     if 1 > len(args) > 3:
-        errors.append(
-            {
-                "table": table_name,
-                "cell": fn_loc,
-                "rule": "tree function error",
-                "level": "ERROR",
-                "message": "the `tree` function must have between one and three arguments",
-                "kill": True,
-            }
-        )
+        errors.append({"message": "the `tree` function must have between one and three arguments"})
         return None, errors
 
     # first arg is always table.column
     tree_arg = args.pop(0)
     if "table" not in tree_arg:
         errors.append(
-            {
-                "table": table_name,
-                "cell": fn_loc,
-                "rule": "tree function error",
-                "level": "ERROR",
-                "message": "the first argument of the `tree` function must be a table.column pair",
-                "kill": True,
-            }
+            {"message": "the first argument of the `tree` function must be a table.column pair"}
         )
         return None, errors
 
@@ -1111,13 +761,8 @@ def validate_tree_type(
         # logging.error("The table in `tree` must be the same as the `table` value")
         errors.append(
             {
-                "table": table_name,
-                "cell": fn_loc,
-                "rule": "tree function error",
-                "level": "ERROR",
                 "message": f"the table name provided in the `tree` function ({tree_table_name}) "
                 f"must be the same as the value in the 'table' column ({tree_table})",
-                "kill": True,
             }
         )
         return None, errors
@@ -1135,14 +780,7 @@ def validate_tree_type(
                     add_tree_name = f'{arg["table"]}.{arg["column"]}'
                 else:
                     errors.append(
-                        {
-                            "table": table_name,
-                            "cell": fn_loc,
-                            "rule": "tree function error",
-                            "level": "ERROR",
-                            "message": f"`tree` arguments must be table.column pair or split=CHAR",
-                            "kill": True,
-                        }
+                        {"message": f"`tree` arguments must be table.column pair or split=CHAR"}
                     )
                     return None, errors
                 x += 1
@@ -1150,7 +788,6 @@ def validate_tree_type(
         return build_tree(
             config,
             fn_row_idx,
-            fn_col_idx,
             tree_table,
             tree_column,
             child_column,
@@ -1158,358 +795,6 @@ def validate_tree_type(
             add_tree_name=add_tree_name,
             split_char=split_char,
         )
-
-
-# ---- LARK PARSING ----
-
-
-def parse_args(arg):
-    """Parse an argument of a 'function' expression.
-
-    :param arg: list representing one argument provided to a function.
-                This list is created from the Lark parser output.
-    :return: str or dict representation of arg, or None on error
-    """
-    found_label = False
-    search_label = False
-    search_field = False
-    search_named_arg = False
-    search_int = False
-    arg_name = None
-    table = None
-    itm = None
-
-    for itm in arg:
-        if isinstance(itm, int):
-            continue
-
-        # if itm == "function":
-
-        if itm == "integer":
-            search_int = True
-            continue
-
-        if search_int:
-            return int(itm)
-
-        if itm == "named_arg":
-            search_named_arg = True
-            continue
-
-        if search_named_arg:
-            if not found_label and itm == "label":
-                found_label = True
-                continue
-            if not arg_name:
-                # Name always comes first
-                arg_name = itm
-                found_label = False
-                continue
-            else:
-                return {arg_name: itm}
-
-        if itm == "field":
-            # Field is a table.column pair
-            search_field = True
-            continue
-
-        if search_field:
-            if not found_label and itm == "label":
-                found_label = True
-                continue
-            if not table:
-                # Table always comes first
-                table = itm
-                found_label = False
-                continue
-            else:
-                # As long as we've bypassed table and label, the item is the column name
-                return {"table": table, "column": itm}
-
-        if itm == "label":
-            # Ignore the first instance of "label" - part of grammar
-            # We cannot globally ignore "label" because that may be a datatype
-            search_label = True
-            continue
-
-        if search_label:
-            # No "field" means that this is just a string arg
-            return itm
-
-    if table and itm:
-        return {"table": table, "column": itm}
-    else:
-        return None
-
-
-def parse_function(function):
-    """Parse a 'function' list to a dictionary.
-
-    :param function: 'function' list from Lark parsing
-    :return: dictionary representation of the list
-    """
-    args_level = 0
-    cur_level = 0
-    func_level = 0
-
-    func_name = None
-    search_name = False
-
-    cur_arg = None
-    in_func = False
-
-    args = []
-
-    for itm in function:
-        if isinstance(itm, int):
-            cur_level = itm
-
-        if itm == "function_name" and not func_name:
-            search_name = True
-            continue
-        if search_name:
-            func_name = itm
-            search_name = False
-            continue
-
-        if itm == "arguments":
-            args_level = cur_level
-
-        if itm == "argument" and cur_arg is None:
-            cur_arg = []
-            continue
-
-        if cur_arg is not None:
-            if itm == "function":
-                in_func = True
-                if cur_level < args_level:
-                    if cur_arg:
-                        parsed, err = parse_function_arg(cur_arg)
-                        if parsed:
-                            args.append(parsed)
-                        else:
-                            return None, err
-                    func_level = cur_level
-                    cur_arg = []
-                else:
-                    cur_arg.append("function")
-                continue
-
-            if in_func and cur_level > func_level:
-                cur_arg.append(itm)
-                continue
-
-            if itm == "argument" and cur_level - 1 == args_level:
-                if cur_arg:
-                    in_func = False
-                    parsed, err = parse_function_arg(cur_arg)
-                    if parsed:
-                        args.append(parsed)
-                    else:
-                        return None, err
-                cur_arg = []
-                continue
-            cur_arg.append(itm)
-
-    if cur_arg:
-        parsed, err = parse_function_arg(cur_arg)
-        if parsed:
-            args.append(parsed)
-        else:
-            return None, err
-
-    return {"function": {func_name: args}}, None
-
-
-def parse_function_arg(cur_arg):
-    """Parse a function that has been provided as an argument to another function.
-
-    :param cur_arg: list of parsed values for function
-    :return: parsed function as dictionary or None, error message on failure
-    """
-    popped = cur_arg.pop(0)
-    if cur_arg[0] == "function_name":
-        cur_arg.insert(0, popped)
-        cur_arg.insert(0, "function")
-    if cur_arg[0] == "function":
-        return parse_function(cur_arg)
-    else:
-        parsed = parse_args(cur_arg)
-        if parsed:
-            return parsed, None
-        else:
-            return None, "Unable to parse args: " + cur_arg
-
-
-def parse_sub_conditions(sub_conds):
-    """Parse sub-conditions within a disjunction or negation.
-
-    :param sub_conds: list representing all sub-conditions.
-                      This list is created from the Lark parser output.
-    :return: list of dict(s) (None on error), error message (None on success)
-    """
-    search_type = False
-    search_expr = False
-    expr_type = None
-    found_label = False
-    function = None
-    parsed_set = []
-    in_negation = False
-    for itm in sub_conds:
-        if itm == "expression":
-            # Reset
-            if function:
-                # Parse previous function, if it exists
-                function.insert(0, "function_name")
-                parsed_function, err = parse_function(function)
-                if not parsed_function:
-                    return None, err
-                if in_negation:
-                    parsed_set.append({"negation": parsed_function})
-                    in_negation = False
-                else:
-                    parsed_set.append(parsed_function)
-            expr_type = None
-            search_expr = True
-            function = None
-            search_type = False
-            continue
-
-        if search_expr:
-            if isinstance(itm, int):
-                continue
-            if search_type:
-                expr_type = itm
-                search_expr = False
-                search_type = False
-                continue
-            if itm == "type":
-                search_type = True
-                function = None
-                continue
-            if itm == "negation":
-                in_negation = True
-            search_expr = False
-            continue
-
-        if itm == "type":
-            # Next item will be the type, either function or datatype
-            search_type = True
-            function = None
-            continue
-        if search_type and not isinstance(itm, int):
-            # Grab "expression" type and continue
-            expr_type = itm
-            search_type = False
-            continue
-
-        if expr_type:
-            # Parse based on the expression type
-            if expr_type == "datatype":
-                if not found_label and itm == "label":
-                    found_label = True
-                    continue
-                if isinstance(itm, int):
-                    continue
-                if in_negation and not isinstance(itm, int):
-                    parsed_set.append({"negation": {"datatype": itm}})
-                    in_negation = False
-                else:
-                    parsed_set.append({"datatype": itm})
-                expr_type = None
-                search_type = False
-            elif expr_type == "function":
-                if function is not None:
-                    function.append(itm)
-                else:
-                    function = []
-    if function:
-        # Make sure to get last function if it exists
-        function.insert(0, "function_name")
-        parsed_function, err = parse_function(function)
-        if not parsed_function:
-            return None, err
-        if in_negation:
-            parsed_set.append({"negation": parsed_function})
-        else:
-            parsed_set.append(parsed_function)
-    return parsed_set, None
-
-
-def parse(text):
-    """Parse a text function or datatype.
-
-    :param text: text to parse
-    :return: parsed text as dict (None on error), error message (None on success)
-    """
-    parser = Lark(
-        """
-        start: expression
-        expression: negation | disjunction | type
-        negation: "not" expression
-        disjunction: expression ("or" expression)+
-        type: function | datatype
-        function: function_name "(" arguments ")" | function_name "()"
-        function_name: WORD
-        arguments: argument ("," argument)*
-        argument: field | named_arg | label | integer | function
-        field: label "." label
-        named_arg: label "=" label
-        datatype: label
-        label: WORD | ESCAPED_STRING
-        integer: INTEGER
-        INTEGER : /[0-9]+/
-
-        %import common.WORD
-        %import common.ESCAPED_STRING
-        %ignore " "           // Disregard spaces in text
-    """
-    )
-
-    try:
-        t = parser.parse(text)
-    except UnexpectedInput as e:
-        print(text)
-        raise e
-
-    tree_list_unparsed = tree2list(t, ">")
-    tree_list_unparsed = [x for x in tree_list_unparsed if x != "\n" and x != "\t"]
-    tree_list = []
-
-    for itm in tree_list_unparsed:
-        if re.match(r"^>+$", itm):
-            tree_list.append(len(itm) - 1)
-        else:
-            tree_list.append(itm)
-    # Remove the first levels & their ints (start and expression)
-    tree_list.pop(0)
-    tree_list.pop(0)
-    tree_list.pop(0)
-    tree_list.pop(0)
-    tree_list.pop(0)
-
-    # Get the first value and transform the list into a dict
-    v = tree_list.pop(0)
-    if v == "type":
-        tree_list.pop(0)
-        expr_type = tree_list.pop(0)
-        if expr_type == "datatype":
-            return {"datatype": tree_list[-1]}, None
-        else:
-            p_funct, err = parse_function(tree_list)
-            if not p_funct:
-                return None, err
-            return p_funct, None
-    elif v == "disjunction":
-        p_set, err = parse_sub_conditions(tree_list)
-        if not p_set:
-            return None, err
-        return {"disjunction": p_set}, None
-    elif v == "negation":
-        p_set, err = parse_sub_conditions(tree_list)
-        if not p_set:
-            return None, err
-        return {"negation": p_set}, None
 
 
 # ---- CONDITION VALIDATION ----
@@ -1553,10 +838,10 @@ def meets_condition(
     :param when_condition: "when condition" to prompt checking rule
     :return: True if value meets condition, error message on False
     """
-    condition_type = list(condition.keys())[0]
+    condition_type = condition["type"]
     datatypes = config["datatypes"]
     if condition_type == "datatype":
-        datatype = condition["datatype"]
+        datatype = condition["name"]
         # Check if condition is met, potentially get a replacement
         value_meets_condition, replace = is_datatype(datatypes, datatype, value)
         if value_meets_condition is False:
@@ -1569,7 +854,7 @@ def meets_condition(
             return False, f"'{value}' must be of datatype '{unparsed_condition}'"
 
     elif condition_type == "function":
-        success, err = run_function(config, condition["function"], value, lookup_value=when_value)
+        success, err = run_function(config, condition, value, lookup_value=when_value)
         if not success:
             if when_condition:
                 return False, f"because '{when_value}' is '{when_condition}', {err}"
@@ -1577,10 +862,11 @@ def meets_condition(
 
     elif condition_type == "negation":
         # Negations may be one or more
-        for c in condition["negation"]:
-            if not meets_condition(config, c, "", value, when_value=when_value)[0]:
-                # As long as one is "NOT" met, this passes
-                return True, None
+        if not meets_condition(config, condition["expression"], "", value, when_value=when_value)[
+            0
+        ]:
+            # As long as one is "NOT" met, this passes
+            return True, None
         # If we get here, the negation conditions were not met
         if unparsed_condition == "not blank":
             if when_condition:
@@ -1595,7 +881,7 @@ def meets_condition(
         return False, f"'{value}' must be {unparsed_condition}"
 
     elif condition_type == "disjunction":
-        for c in condition["disjunction"]:
+        for c in condition["disjuncts"]:
             if meets_condition(config, c, "", value, when_value=when_value)[0]:
                 return True, None
         if when_condition:
@@ -1622,8 +908,8 @@ def run_function(config, function, value, lookup_value=None):
     :return: True if value passes function, error message on False
     """
     table_details = config["table_details"]
-    funct_name = list(function.keys())[0]
-    args = function[funct_name]
+    funct_name = function["name"]
+    args = function["args"]
 
     if funct_name == "CURIE":
         return CURIE(table_details, args, value)
@@ -1717,7 +1003,7 @@ def for_each_list(config, args, value, lookup_value=None):
     :param lookup_value: value required for 'lookup' when 'lookup' is used as the sub-function
     :return: True if value passes list, error message on False"""
     split_char = args[0]
-    sub_funct = args[1]["function"]
+    sub_funct = args[1]
     errs = []
     for v in value.split(split_char):
         success, err = run_function(config, sub_funct, v, lookup_value=lookup_value)
@@ -1776,7 +1062,7 @@ def split(config, args, value, lookup_value=None):
     x = 0
     while x < split_count:
         v = value_split[x]
-        sub_funct = args[x + 2]["function"]
+        sub_funct = args[x + 2]
         success, err = run_function(config, sub_funct, v, lookup_value=lookup_value)
         if not success:
             errs.append(err)
