@@ -3,7 +3,6 @@ import itertools
 import logging
 import os
 import re
-import sys
 
 from argparse import ArgumentParser
 from collections import defaultdict
@@ -1253,11 +1252,11 @@ def validate_table(config, table, fields, rules, row_start=2):
     return errors
 
 
-def write_errors(output, errors):
-    """Write errors to a file.
+def write_messages(output, messages):
+    """Write validation messages to a file.
 
     :param output: path to write errors to
-    :param errors: list of dictionaries of error messages
+    :param messages: list of dictionaries of validation messages
     """
     sep = "\t"
     if output.endswith("csv"):
@@ -1271,7 +1270,7 @@ def write_errors(output, errors):
             extrasaction="ignore",
         )
         writer.writeheader()
-        writer.writerows(errors)
+        writer.writerows(messages)
 
 
 def validate(directories, row_start=2, distinct=False):
@@ -1382,10 +1381,8 @@ def main():
     p.add_argument("-o", "--output", help="CSV or TSV to write error messages to", required=True)
     args = p.parse_args()
 
-    errors = validate(args.directory, row_start=args.row_start, distinct=args.distinct)
-    write_errors(args.output, errors)
-    if errors:
-        sys.exit(1)
+    messages = validate(args.directory, row_start=args.row_start, distinct=args.distinct)
+    write_messages(args.output, messages)
 
 
 if __name__ == "__main__":
