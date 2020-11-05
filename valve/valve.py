@@ -1274,11 +1274,10 @@ def write_errors(output, errors):
         writer.writerows(errors)
 
 
-def valve(source_dir, output, row_start=2, distinct=False):
+def validate(directories, row_start=2, distinct=False):
     """Main VALVE method.
 
-    :param source_dir: directory containing config files & tables to validate
-    :param output: path to output errors to
+    :param directories: list of directories containing config files & tables to validate
     :param row_start: row number that contents to validate start on
     :param distinct: if True, collect distinct errors
     :return: True if VALVE completed (with or without errors), False if VALVE configuration failed
@@ -1287,26 +1286,31 @@ def valve(source_dir, output, row_start=2, distinct=False):
     field_table = None
     rule_table = None
     tables = []
-    for f in os.listdir(source_dir):
-        fname = os.path.splitext(f)[0]
-        path = os.path.join(source_dir, f)
-        if fname == "datatype":
-            datatype_table = path
-        elif fname == "field":
-            field_table = path
-        elif fname == "rule":
-            rule_table = path
-        elif path.endswith(".csv") or path.endswith(".tsv"):
-            tables.append(path)
+    for source_dir in directories:
+        for f in os.listdir(source_dir):
+            fname = os.path.splitext(f)[0]
+            path = os.path.join(source_dir, f)
+            if not path.endswith(".csv") and not path.endswith(".tsv"):
+                continue
+            if fname == "datatype":
+                datatype_table = path
+            elif fname == "field":
+                field_table = path
+            elif fname == "rule":
+                rule_table = path
+            else:
+                tables.append(path)
 
     if not datatype_table:
-        raise RuntimeError("A 'datatype' TSV or CSV must be included in " + source_dir)
+        raise RuntimeError("A 'datatype' TSV or CSV must be included in the input directory(ies)")
     if not field_table:
-        raise RuntimeError("A 'field' TSV or CSV must be included in " + source_dir)
+        raise RuntimeError("A 'field' TSV or CSV must be included in the input directory(ies)")
     if not rule_table:
-        raise RuntimeError("A 'rule' TSV or CSV must be included in " + source_dir)
+        raise RuntimeError("A 'rule' TSV or CSV must be included in the input directory(ies)")
     if not tables:
-        raise RuntimeError("Additional tables to validate must be included in " + source_dir)
+        raise RuntimeError(
+            "Additional tables to validate must be included in the input directory(ies)"
+        )
 
     setup_errors = []
     table_details = get_table_details(tables, row_start=row_start)
@@ -1325,15 +1329,10 @@ def valve(source_dir, output, row_start=2, distinct=False):
     setup_errors.extend(add_errors)
 
     # Check for true setup errors and stop process if they exist
-    kill = False
-
     for e in setup_errors:
         if "kill" in e:
-            kill = True
-    if kill:
-        write_errors(output, setup_errors)
-        logging.critical(f"VALVE setup failed with {len(setup_errors)} errors!")
-        return False
+            logging.critical(f"VALVE setup failed with {len(setup_errors)} errors!")
+            return setup_errors
 
     config = {"datatypes": datatypes, "table_details": table_details, "trees": trees}
 
@@ -1357,17 +1356,19 @@ def valve(source_dir, output, row_start=2, distinct=False):
             errors.extend(update_errors)
         elif not distinct:
             errors.extend(add_errors)
-
-    write_errors(output, errors)
     if errors:
         logging.error(f"VALVE completed with {len(errors)} problems found!")
-    return True
+    return errors
 
 
 def main():
     p = ArgumentParser()
     p.add_argument(
-        "-D", "--directory", help="Directory containing config and tables", required=True
+        "-D",
+        "--directory",
+        help="Directory containing config and/or tables",
+        required=True,
+        action="append",
     )
     p.add_argument(
         "-d",
@@ -1381,8 +1382,9 @@ def main():
     p.add_argument("-o", "--output", help="CSV or TSV to write error messages to", required=True)
     args = p.parse_args()
 
-    success = valve(args.directory, args.output, row_start=args.row_start, distinct=args.distinct)
-    if not success:
+    errors = validate(args.directory, row_start=args.row_start, distinct=args.distinct)
+    write_errors(args.output, errors)
+    if errors:
         sys.exit(1)
 
 
