@@ -754,9 +754,10 @@ def validate_condition(config, parsed_condition):
 
 
 def validate_distinct(args):
-    """
-    :param args:
-    :return:
+    """Validate arguments to the `distinct` function.
+
+    :param args: list of args passed to `distinct`
+    :return: True if valid or False if not, error message on False
     """
     expr = args[0]
     if expr["type"] != "datatype" and expr["type"] != "function":
