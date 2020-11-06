@@ -3,6 +3,7 @@ import itertools
 import logging
 import os
 import re
+import sys
 
 from argparse import ArgumentParser
 from collections import defaultdict
@@ -1402,6 +1403,9 @@ def main():
 
     messages = validate(args.paths, row_start=args.row_start, distinct=args.distinct)
     write_messages(args.output, messages)
+    for msg in messages:
+        if "level" in msg and msg["level"].lower() == "error":
+            sys.exit(1)
 
 
 if __name__ == "__main__":
