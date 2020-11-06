@@ -52,4 +52,4 @@ def test_valve():
 
 
 def test_valve_distinct():
-    run_valve("errors_distinct", True)
+    run_valve("errors_distinct", "build")

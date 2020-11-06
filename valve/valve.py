@@ -44,41 +44,19 @@ funct_names = ["CURIE", "from", "in", "list", "lookup", "split", "tree", "under"
 # ---- MISC HELPERS ----
 
 
-def build_datatype_ancestors(datatypes, datatype, ancestors=None):
+def build_datatype_ancestors(datatypes, datatype):
     """Recursively build a list of ancestor datatypes for a given datatype.
 
     :param datatypes: map of datatype name -> details
     :param datatype: datatype to get ancestors of
-    :param ancestors: current list of ancestors to build on, or None to start a new list
     :return: list of ancestor datatypes
     """
-    if not ancestors:
-        ancestors = []
+    ancestors = []
     parent = datatypes[datatype].get("parent")
     if parent:
         ancestors.append(parent)
-        ancestors.extend(build_datatype_ancestors(datatypes, parent, ancestors=ancestors))
+        ancestors.extend(build_datatype_ancestors(datatypes, parent))
     return ancestors
-
-
-def build_table_descendants(tree, node, descendants=None):
-    """Recursively build a list of descendants for a given node from a tree structure.
-
-    :param tree: map of parent node -> list of children nodes
-    :param node: node to get all descendants of
-    :param descendants: current list of descendants to build on, or None to start a new list
-    :return: list of descendant nodes
-    """
-    if not descendants:
-        descendants = []
-    children = tree.get(node, [])
-    for c in children:
-        if c not in descendants:
-            descendants.append(c)
-            add_descendants = build_table_descendants(tree, c, descendants=descendants)
-            if add_descendants:
-                descendants.extend(add_descendants)
-    return descendants
 
 
 def has_ancestor(tree, ancestor, node, direct=False):
@@ -282,8 +260,8 @@ def read_field_table(config, field_table, row_start=2):
                     )
                     for err in add_errors:
                         if "table" not in err:
-                            err["table"] = (table_name,)
-                            err["cell"] = (headers.index("type") + 1,)
+                            err["table"] = table_name
+                            err["cell"] = idx_to_a1(idx, headers.index("type") + 1)
                             err["rule"] = "tree function error"
                             err["level"] = "ERROR"
                             err["kill"] = True
@@ -677,8 +655,11 @@ def validate_function(config, function):
         if tree_loc["type"] != "field":
             return False, f"`under` argument 1 must be a table.column pair"
 
-        trees = config["trees"]
         tree_name = f'{tree_loc["table"]}.{tree_loc["column"]}'
+        if "trees" not in config:
+            return False, f"a `tree` for {tree_name} must be defined in order to use `under`"
+        trees = config["trees"]
+
         if tree_name not in trees:
             # tree must have already been defined
             return False, f"`under` argument 1 '{tree_name}' must be defined as a tree in 'field'"
@@ -792,8 +773,8 @@ def validate_tree_type(config, fn_row_idx, tree_table, tree_column, tree_functio
             x = 0
             while x < len(args):
                 arg = args[x]
-                if "split" in arg:
-                    split_char = arg["split"]
+                if "name" in arg and arg["name"] == "split":
+                    split_char = arg["value"]
                 elif "table" in arg:
                     add_tree_name = f'{arg["table"]}.{arg["column"]}'
                 else:
@@ -1122,12 +1103,13 @@ def under(trees, args, value):
 # ---- VALIDATION ----
 
 
-def collect_distinct(table_details, table, errors):
+def collect_distinct(table_details, output_dir, table, errors):
     """Collect distinct error messages and write the rows with distinct errors to a new table. The
     new table will be [table_name]_distinct. Return the distinct errors with updated locations in
     the new table.
 
     :param table_details: table name -> details (rows, fields)
+    :param output_dir: directory to write distinct tables to
     :param table: path to table with errors
     :param errors: all errors from the table
     :return: updated distinct errors from the table
@@ -1146,13 +1128,12 @@ def collect_distinct(table_details, table, errors):
     errors = []
 
     basename = os.path.basename(table)
-    dirname = os.path.dirname(table)
     table_name = os.path.splitext(basename)[0]
     table_ext = os.path.splitext(basename)[1]
     sep = "\t"
     if table_ext == ".csv":
         sep = ","
-    output = f"{dirname}/{table_name}_distinct{table_ext}"
+    output = os.path.join(output_dir, f"{table_name}_distinct{table_ext}")
     logging.info("writing rows with errors to " + output)
 
     fields = table_details[table_name]["fields"]
@@ -1273,32 +1254,46 @@ def write_messages(output, messages):
         writer.writerows(messages)
 
 
-def validate(directories, row_start=2, distinct=False):
-    """Main VALVE method.
+def get_config_from_tables(paths, row_start=2):
+    """Create a VALVE config dict from a list of paths.
 
-    :param directories: list of directories containing config files & tables to validate
+    :param paths: input paths
     :param row_start: row number that contents to validate start on
-    :param distinct: if True, collect distinct errors
-    :return: True if VALVE completed (with or without errors), False if VALVE configuration failed
+    :return: config dict
     """
     datatype_table = None
     field_table = None
     rule_table = None
     tables = []
-    for source_dir in directories:
-        for f in os.listdir(source_dir):
-            fname = os.path.splitext(f)[0]
-            path = os.path.join(source_dir, f)
-            if not path.endswith(".csv") and not path.endswith(".tsv"):
-                continue
+    for dir_or_file in paths:
+        files = []
+        if os.path.isdir(dir_or_file):
+            for f in os.listdir(dir_or_file):
+                path = os.path.join(dir_or_file, f)
+                if not path.endswith(".csv") and not path.endswith(".tsv"):
+                    continue
+                files.append(path)
+        else:
+            files.append(dir_or_file)
+
+        for f in files:
+            fname = os.path.splitext(os.path.basename(f))[0]
             if fname == "datatype":
-                datatype_table = path
+                if datatype_table:
+                    raise RuntimeError(
+                        f"More than one 'datatype' table found: {f}, {datatype_table}"
+                    )
+                datatype_table = f
             elif fname == "field":
-                field_table = path
+                if field_table:
+                    raise RuntimeError(f"More than one 'field' table found: {f}, {field_table}")
+                field_table = f
             elif fname == "rule":
-                rule_table = path
+                if field_table:
+                    raise RuntimeError(f"More than one 'rule' table found: {f}, {rule_table}")
+                rule_table = f
             else:
-                tables.append(path)
+                tables.append(f)
 
     if not datatype_table:
         raise RuntimeError("A 'datatype' TSV or CSV must be included in the input directory(ies)")
@@ -1327,16 +1322,47 @@ def validate(directories, row_start=2, distinct=False):
     table_rules, add_errors = read_rule_table(config, rule_table)
     setup_errors.extend(add_errors)
 
+    return {
+        "datatypes": datatypes,
+        "table_details": table_details,
+        "table_fields": table_fields,
+        "table_rules": table_rules,
+        "trees": trees,
+        "errors": setup_errors,
+    }
+
+
+def validate(o, row_start=2, distinct=None):
+    """Main VALVE method.
+
+    :param o: inputs or config object
+    :param row_start: row number that contents to validate start on
+    :param distinct: output directory to write distinct error tables to, or None
+    :return: True if VALVE completed (with or without errors), False if VALVE configuration failed
+    """
+
+    if isinstance(o, list):
+        config = get_config_from_tables(o, row_start=row_start)
+    elif isinstance(o, dict):
+        config = o
+    else:
+        raise Exception(
+            "`validate` accepts a list of paths or a config object, not " + type(o).__name__
+        )
+
+    table_details = config["table_details"]
+    table_fields = config["table_fields"]
+    table_rules = config["table_rules"]
+    setup_errors = config["errors"]
+
     # Check for true setup errors and stop process if they exist
     for e in setup_errors:
         if "kill" in e:
             logging.critical(f"VALVE setup failed with {len(setup_errors)} errors!")
             return setup_errors
 
-    config = {"datatypes": datatypes, "table_details": table_details, "trees": trees}
-
     errors = []
-    for table in tables:
+    for table in table_details.keys():
         logging.info("validating " + table)
         tname = os.path.splitext(os.path.basename(table))[0]
         fields = table_fields.get(tname, [])
@@ -1351,7 +1377,7 @@ def validate(directories, row_start=2, distinct=False):
 
         if add_errors and distinct:
             # Update errors to only be distinct messages in a new table
-            update_errors = collect_distinct(table_details, table, add_errors)
+            update_errors = collect_distinct(table_details, distinct, table, add_errors)
             errors.extend(update_errors)
         elif not distinct:
             errors.extend(add_errors)
@@ -1362,18 +1388,11 @@ def validate(directories, row_start=2, distinct=False):
 
 def main():
     p = ArgumentParser()
-    p.add_argument(
-        "-D",
-        "--directory",
-        help="Directory containing config and/or tables",
-        required=True,
-        action="append",
-    )
+    p.add_argument("paths", help="Paths to input directories and/or files", nargs="+")
     p.add_argument(
         "-d",
         "--distinct",
-        help="Collect the first of each distinct error messages and write to a separate table",
-        action="store_true",
+        help="Collect each distinct error messages and write to a table in provided directory"
     )
     p.add_argument(
         "-r", "--row-start", help="Index of first row in tables to validate", type=int, default=2
@@ -1381,7 +1400,7 @@ def main():
     p.add_argument("-o", "--output", help="CSV or TSV to write error messages to", required=True)
     args = p.parse_args()
 
-    messages = validate(args.directory, row_start=args.row_start, distinct=args.distinct)
+    messages = validate(args.paths, row_start=args.row_start, distinct=args.distinct)
     write_messages(args.output, messages)
 
 
