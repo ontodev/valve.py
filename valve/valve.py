@@ -39,7 +39,7 @@ rule_headers = [
 # Other allowed values: level, description, note
 
 # Supported function names
-funct_names = ["CURIE", "from", "in", "list", "lookup", "split", "tree", "under"]
+funct_names = ["CURIE", "distinct", "from", "in", "list", "lookup", "split", "tree", "under"]
 
 
 # ---- MISC HELPERS ----
@@ -261,17 +261,49 @@ def read_field_table(config, field_table, row_start=2):
                     )
                     for err in add_errors:
                         if "table" not in err:
-                            err["table"] = table_name
-                            err["cell"] = idx_to_a1(idx, headers.index("type") + 1)
-                            err["rule"] = "tree function error"
-                            err["level"] = "ERROR"
-                            err["kill"] = True
+                            err.update(
+                                {
+                                    "table": table_name,
+                                    "cell": idx_to_a1(idx, headers.index("type") + 1),
+                                    "rule": "`tree` function error",
+                                    "level": "ERROR",
+                                    "kill": True,
+                                }
+                            )
                         errors.append(err)
                     if tree:
                         # Add tree to config for further tree iterations
                         trees[f"{table}.{column}"] = tree
                         config["trees"] = trees
                     continue
+                elif parsed_type["type"] == "function" and parsed_type["name"] == "distinct":
+                    # Validate the args
+                    args = parsed_type["args"]
+                    success, err = validate_distinct(args)
+                    if err:
+                        errors.append(
+                            {
+                                "table": table_name,
+                                "cell": idx_to_a1(idx, headers.index("type") + 1),
+                                "rule": "`distinct` function error",
+                                "level": "ERROR",
+                                "message": err,
+                                "kill": True,
+                            }
+                        )
+                        continue
+                    success, add_errors = distinct(
+                        config["table_details"], args, table, column, row_start=row_start,
+                    )
+                    if not success:
+                        for err in add_errors:
+                            err["rule ID"] = "field:" + str(idx)
+                            err["rule"] = "non-distinct value(s)"
+                            err["level"] = "ERROR"
+                            errors.append(err)
+                    # Set the first arg (an expression) to the type for this table.column
+                    parsed_type = args[0]
+
                 field_types[column] = {
                     "parsed": parsed_type,
                     "unparsed": row["type"],
@@ -718,6 +750,19 @@ def validate_condition(config, parsed_condition):
     return True, None
 
 
+def validate_distinct(args):
+    expr = args[0]
+    if expr["type"] != "datatype" and expr["type"] != "function":
+        return False, "`distinct` argument 1 must be a datatype or function"
+    if len(args) > 1:
+        arg_idx = 2
+        for arg in args[1:]:
+            if arg["name"] != "field":
+                return False, f"`distinct` argument {arg_idx} must be a table.column pair"
+            arg_idx += 1
+    return True, None
+
+
 def validate_level(level):
     """Validate a level entry. The level must be one of (case-insensitive): error, warn, or info.
 
@@ -957,6 +1002,85 @@ def CURIE(table_details, args, value):
     return True, None
 
 
+def distinct(table_details, args, table, column, row_start=2):
+    """Method for the VALVE 'distinct' function.
+
+    :param table_details: dictionary of table name -> details
+    :param args: arguments provided to distinct
+    :param table: table to run distinct on
+    :param column: column to run distinct on
+    :param row_start: row number of row that values to validate start on
+    :return: True if values pass distinct, list of errors on False
+    """
+    base_rows = table_details[table]["rows"]
+    base_headers = table_details[table]["fields"]
+    base_values = [x[column] for x in base_rows if x.get(column, None)]
+
+    # extra columns to check - {table: {column: values}}
+    errors = []
+    with_values = defaultdict(dict)
+    if len(args) > 1:
+        for itm in args[1:]:
+            t = itm["table"]
+            c = itm["column"]
+            trows = table_details[t]["rows"]
+            values = [x[c] for x in trows if x.get(c, None)]
+            if t not in with_values:
+                with_values[t] = dict()
+            with_values[t].update({c: values})
+
+    duplicate_values = defaultdict(set)
+    for t, cvs in with_values.items():
+        for c, values in cvs.items():
+            headers = table_details[t]["fields"]
+            idx = row_start
+            for v in values:
+                if v in base_values:
+                    base_loc = idx_to_a1(
+                        base_values.index(v) + row_start, base_headers.index(column) + 1
+                    )
+                    if v not in duplicate_values:
+                        duplicate_values[v] = set()
+                    duplicate_values[v].add(f"{t}:{idx_to_a1(idx, headers.index(c) + 1)}")
+                    duplicate_values[v].add(f"{table}:{base_loc}")
+                idx += 1
+
+    if len(base_values) > len(set(base_values)):
+        # Create a dict of value -> indexes
+        value_to_idxs = defaultdict(list)
+        for i, v in enumerate(base_values):
+            value_to_idxs[v].append(i)
+        value_to_idxs = {k: v for k, v in value_to_idxs.items() if len(v) > 1}
+
+        # Add these to the duplicate_values map
+        for val, idxs in value_to_idxs.items():
+            if val not in duplicate_values:
+                duplicate_values[val] = set()
+            for i in idxs:
+                duplicate_values[val].add(
+                    f"{table}:{idx_to_a1(i + row_start, base_headers.index(column) + 1)}"
+                )
+
+    # Create the error messages
+    for value, locs in duplicate_values.items():
+        for loc in locs:
+            t = loc.split(":")[0]
+            a1 = loc.split(":")[1]
+            other_locs = locs.copy()
+            other_locs.remove(loc)
+            errors.append(
+                {
+                    "table": t,
+                    "cell": a1,
+                    "message": f"'{value}' must be distinct with value(s) at: "
+                    + ", ".join(other_locs),
+                }
+            )
+    if errors:
+        return False, errors
+    return True, None
+
+
 def in_set(args, value):
     """Method for the VALVE 'in' function. The value must be one of the arguments.
 
@@ -1104,29 +1228,29 @@ def under(trees, args, value):
 # ---- VALIDATION ----
 
 
-def collect_distinct(table_details, output_dir, table, errors):
-    """Collect distinct error messages and write the rows with distinct errors to a new table. The
-    new table will be [table_name]_distinct. Return the distinct errors with updated locations in
+def collect_distinct_messages(table_details, output_dir, table, messages):
+    """Collect distinct messages and write the rows with distinct messages to a new table. The
+    new table will be [table_name]_distinct. Return the distinct messages with updated locations in
     the new table.
 
     :param table_details: table name -> details (rows, fields)
     :param output_dir: directory to write distinct tables to
-    :param table: path to table with errors
-    :param errors: all errors from the table
-    :return: updated distinct errors from the table
+    :param table: path to table with messages
+    :param messages: all messages from the table
+    :return: updated distinct messages from the table
     """
-    distinct = {}
-    for error in errors:
-        if error["message"] not in distinct:
-            distinct[error["message"]] = error
+    distinct_messages = {}
+    for msg in messages:
+        if msg["message"] not in distinct_messages:
+            distinct_messages[msg["message"]] = msg
 
-    logging.info(f"{len(distinct)} distinct error(s) found in {table}")
+    logging.info(f"{len(distinct_messages)} distinct error(s) found in {table}")
 
-    error_rows = defaultdict(list)
-    for error in distinct.values():
-        row = int(error["cell"][1:])
-        error_rows[row].append(error)
-    errors = []
+    message_rows = defaultdict(list)
+    for msg in distinct_messages.values():
+        row = int(msg["cell"][1:])
+        message_rows[row].append(msg)
+    messages = []
 
     basename = os.path.basename(table)
     table_name = os.path.splitext(basename)[0]
@@ -1145,15 +1269,15 @@ def collect_distinct(table_details, output_dir, table, errors):
         row_idx = 2
         new_idx = 2
         for row in rows:
-            if row_idx in error_rows.keys():
+            if row_idx in message_rows.keys():
                 writer.writerow(row)
-                for error in error_rows[row_idx]:
-                    error["table"] = table_name + "_distinct"
-                    error["cell"] = error["cell"][0:1] + str(new_idx)
-                    errors.append(error)
+                for msg in message_rows[row_idx]:
+                    msg["table"] = table_name + "_distinct"
+                    msg["cell"] = msg["cell"][0:1] + str(new_idx)
+                    messages.append(msg)
                 new_idx += 1
             row_idx += 1
-    return errors
+    return messages
 
 
 def validate_table(config, table, fields, rules, row_start=2):
@@ -1333,12 +1457,12 @@ def get_config_from_tables(paths, row_start=2):
     }
 
 
-def validate(o, row_start=2, distinct=None):
+def validate(o, row_start=2, distinct_messages=None):
     """Main VALVE method.
 
     :param o: inputs or config object
     :param row_start: row number that contents to validate start on
-    :param distinct: output directory to write distinct error tables to, or None
+    :param distinct_messages: output directory to write distinct message tables to, or None
     :return: True if VALVE completed (with or without errors), False if VALVE configuration failed
     """
 
@@ -1376,11 +1500,13 @@ def validate(o, row_start=2, distinct=None):
         add_errors.extend([x for x in setup_errors if x["table"] == tname])
         logging.info(f"{add_errors} errors found in {table}")
 
-        if add_errors and distinct:
+        if add_errors and distinct_messages:
             # Update errors to only be distinct messages in a new table
-            update_errors = collect_distinct(table_details, distinct, table, add_errors)
+            update_errors = collect_distinct_messages(
+                table_details, distinct_messages, table, add_errors
+            )
             errors.extend(update_errors)
-        elif not distinct:
+        elif not distinct_messages:
             errors.extend(add_errors)
     if errors:
         logging.error(f"VALVE completed with {len(errors)} problems found!")
@@ -1393,7 +1519,7 @@ def main():
     p.add_argument(
         "-d",
         "--distinct",
-        help="Collect each distinct error messages and write to a table in provided directory"
+        help="Collect each distinct error messages and write to a table in provided directory",
     )
     p.add_argument(
         "-r", "--row-start", help="Index of first row in tables to validate", type=int, default=2
@@ -1401,7 +1527,7 @@ def main():
     p.add_argument("-o", "--output", help="CSV or TSV to write error messages to", required=True)
     args = p.parse_args()
 
-    messages = validate(args.paths, row_start=args.row_start, distinct=args.distinct)
+    messages = validate(args.paths, row_start=args.row_start, distinct_messages=args.distinct)
     write_messages(args.output, messages)
     for msg in messages:
         if "level" in msg and msg["level"].lower() == "error":
