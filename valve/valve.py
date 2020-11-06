@@ -297,9 +297,13 @@ def read_field_table(config, field_table, row_start=2):
                     )
                     if not success:
                         for err in add_errors:
-                            err["rule ID"] = "field:" + str(idx)
-                            err["rule"] = "non-distinct value(s)"
-                            err["level"] = "ERROR"
+                            err.update(
+                                {
+                                    "rule ID": "field:" + str(idx),
+                                    "rule": "non-distinct value(s)",
+                                    "level": "ERROR",
+                                }
+                            )
                             errors.append(err)
                     # Set the first arg (an expression) to the type for this table.column
                     parsed_type = args[0]
