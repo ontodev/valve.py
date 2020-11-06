@@ -2,7 +2,7 @@ table	column	type	note
 *	Type	"in(""owl:Class"", ""owl:ObjectProperty"")"	"""*"" matches any table; value IN set"
 prefix	Prefix	prefix
 prefix	Base	IRI
-external	ID	CURIE(prefix.prefix)	a CURIE with a prefix from the prefix table
+external	ID	distinct(CURIE(prefix.prefix))	a CURIE with a prefix from the prefix table
 external	Label	label
 external	Parent	tree(external.Label)	same type as external.label field i.e. label; also build a tree; parent must be in label
 external	Material Basis	"blank or under(external.Parent, ""material entity"")"	

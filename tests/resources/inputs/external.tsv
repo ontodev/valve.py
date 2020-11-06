@@ -13,3 +13,4 @@ ONTIE:0003314	administering substance in vivo	owl:Class	exposure process
 ONTIE:0003305	exposure to substance without evidence for disease	owl:Class	exposure process
 ONTIE:0003322	occurrence of disease	owl:Class	exposure process
 ONTIE:0003317	occurrence of infectious disease	owl:Class	occurrence of disease
+ONTIE:0003317	occurrence of cancer	owl:Class	occurrence of disease
