@@ -602,12 +602,11 @@ def validate_function(config, function):
     args = function["args"]
     if funct_name == "CURIE":
         # CURIE(table.column)
-        if len(args) != 1:
-            # must have exactly one value
-            return False, "`CURIE` must have exactly one argument"
-        if args[0]["type"] != "field":
-            # value must be a table.column dict
-            return False, "`CURIE` argument must be a table.column pair"
+        for arg in args:
+            if (not isinstance(arg, str) and not isinstance(arg, dict)) or (
+                isinstance(arg, dict) and arg["type"] != "field"
+            ):
+                return False, "`CURIE` argument must be a table.column pair or a string"
 
     elif funct_name == "from":
         # from(table.column)
@@ -755,13 +754,18 @@ def validate_condition(config, parsed_condition):
 
 
 def validate_distinct(args):
+    """Validate arguments to the `distinct` function.
+
+    :param args: list of args passed to `distinct`
+    :return: True if valid or False if not, error message on False
+    """
     expr = args[0]
     if expr["type"] != "datatype" and expr["type"] != "function":
         return False, "`distinct` argument 1 must be a datatype or function"
     if len(args) > 1:
         arg_idx = 2
         for arg in args[1:]:
-            if arg["name"] != "field":
+            if arg["type"] != "field":
                 return False, f"`distinct` argument {arg_idx} must be a table.column pair"
             arg_idx += 1
     return True, None
@@ -986,23 +990,28 @@ def run_function(config, function, value, lookup_value=None):
 
 def CURIE(table_details, args, value):
     """Method for the VALVE 'CURIE' function. The value must be a CURIE and the prefix of the value
-    must be in the table.column pair defined by the only argument.
+    must be in the table.column pair or string defined by the arg (1+ args)
 
     :param table_details: dictionary of table name -> details
     :param args: arguments provided to CURIE
     :param value: value to run CURIE on
     :return: True if value passes CURIE, error message on False
     """
-    table_name = args[0]["table"]
-    column_name = args[0]["column"]
     prefixes = []
-    for row in table_details[table_name]["rows"]:
-        prefixes.append(row[column_name])
+    # Get prefixes from args - either strings or table.column pairs
+    for arg in args:
+        if isinstance(arg, str):
+            prefixes.append(arg)
+            continue
+        table_name = arg["table"]
+        column_name = arg["column"]
+        for row in table_details[table_name]["rows"]:
+            prefixes.append(row[column_name])
     if ":" not in value:
         return False, f"'{value}' is not a CURIE"
     value_prefix = value.split(":")[0]
     if value_prefix not in prefixes:
-        return False, f"prefix '{value_prefix}' must be in {table_name}.{column_name}"
+        return False, f"prefix '{value_prefix}' must be one of: " + ", ".join(prefixes)
     return True, None
 
 
@@ -1049,7 +1058,7 @@ def distinct(table_details, args, table, column, row_start=2):
                     duplicate_values[v].add(f"{t}:{idx_to_a1(idx, headers.index(c) + 1)}")
                     duplicate_values[v].add(f"{table}:{base_loc}")
                 idx += 1
-    
+
     # Check the table.column for duplicate values
     if len(base_values) > len(set(base_values)):
         # Create a dict of value -> indexes
