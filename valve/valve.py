@@ -1033,9 +1033,10 @@ def distinct(table_details, args, table, column, row_start=2):
                 with_values[t] = dict()
             with_values[t].update({c: values})
 
+    # Check external table.columns for values that are duplicate to anything in table.column
     duplicate_values = defaultdict(set)
-    for t, cvs in with_values.items():
-        for c, values in cvs.items():
+    for t, col_values in with_values.items():
+        for c, values in col_values.items():
             headers = table_details[t]["fields"]
             idx = row_start
             for v in values:
@@ -1048,7 +1049,8 @@ def distinct(table_details, args, table, column, row_start=2):
                     duplicate_values[v].add(f"{t}:{idx_to_a1(idx, headers.index(c) + 1)}")
                     duplicate_values[v].add(f"{table}:{base_loc}")
                 idx += 1
-
+    
+    # Check the table.column for duplicate values
     if len(base_values) > len(set(base_values)):
         # Create a dict of value -> indexes
         value_to_idxs = defaultdict(list)
