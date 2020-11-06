@@ -33,7 +33,8 @@ def run_valve(output_name, distinct):
             full_file_name = os.path.join("tests/resources/inputs", file_name)
             if os.path.isfile(full_file_name):
                 shutil.copy(full_file_name, "build/inputs/")
-        valve.valve("build/inputs", actual_output, distinct=distinct)
+        errors = valve.validate(["build/inputs"], distinct=distinct)
+        valve.write_messages(actual_output, errors)
         diff = get_diff(actual_output, expected_output)
         if diff:
             print("The actual and expected outputs differ for " + output_name)
@@ -51,4 +52,4 @@ def test_valve():
 
 
 def test_valve_distinct():
-    run_valve("errors_distinct", True)
+    run_valve("errors_distinct", "build")
