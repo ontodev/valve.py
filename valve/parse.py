@@ -23,7 +23,7 @@ grammar = """
 !n__ws_maybe: xrule_9-> alias_10
 !n__ws: xrule_10-> alias_11
 !n_wschar: /[ \t\n\v\f]/x-> alias_12
-!n_expression: n_negation
+!n_expression: n_negation 
     |n_disjunction
     |n_datatype
     |n_function-> alias_13
@@ -33,21 +33,18 @@ grammar = """
 !n_function_name: n_word
 !n_arguments: n_argument xrule_17-> alias_17
 !n_argument: n_field
-    |n_named_arg
     |n_label
-    |n_int
+    |n_integer
     |n_function
-!n_field: n_label xrule_18 n_str-> alias_18
-!n_named_arg: n_label xrule_19 n_label-> alias_19
-!n_datatype: n_label-> alias_20
-!n_str: n_text
-    |n_dqstring-> alias_21
+    |n_named_arg
+!n_field: n_label xrule_18 n_label-> alias_18
+!n_datatype: n_label-> alias_19
+!n_named_arg: n_label xrule_19 n_label-> alias_20
 !n_label: n_word
-    |n_dqstring-> alias_22
-!n_int: n_integer-> alias_23
-!n_integer: xrule_20-> alias_24
-!n_word: xrule_21-> alias_25
-!n_text: xrule_22-> alias_26
+    |n_dqstring
+!n_int: n_integer-> alias_21
+!n_integer: xrule_20-> alias_22
+!n_word: xrule_21-> alias_23
 !xrule_0: "\\""
 !xrule_1: (n_dstrchar)*
 !xrule_2: "'"
@@ -69,17 +66,15 @@ grammar = """
 !xrule_18: "."
 !xrule_19: "="
 !xrule_20: (/[0-9]/)+
-!xrule_21: (/[a-zA-Z-_]/)+
-!xrule_22: (/[a-zA-Z-_ ]/)+
+!xrule_21: (/[a-zA-Z]/)+
 """
-
 
 # setting scope
 var = Scope(JS_BUILTINS)
 set_global_object(var)
 
 # Code follows:
-var.registers(["ffirst", "join", "_typeof", "id", "objects", "first", "flatten"])
+var.registers(["objects", "id", "join", "_typeof", "first", "flatten", "ffirst"])
 
 
 @Js
@@ -424,13 +419,7 @@ var.put("alias_18", PyJs_alias_18_23_)
 def PyJs_alias_19_24_(d, this, arguments, var=var):
     var = Scope({"d": d, "this": this, "arguments": arguments, "alias_19": PyJs_alias_19_24_}, var)
     var.registers(["d"])
-    return Js(
-        {
-            "type": Js("named_arg"),
-            "name": var.get("d").get("0").get("0"),
-            "value": var.get("d").get("2").get("0"),
-        }
-    )
+    return Js({"type": Js("datatype"), "name": var.get("d").get("0").get("0")})
 
 
 PyJs_alias_19_24_._set_name("alias_19")
@@ -441,17 +430,20 @@ var.put("alias_19", PyJs_alias_19_24_)
 def PyJs_alias_20_25_(d, this, arguments, var=var):
     var = Scope({"d": d, "this": this, "arguments": arguments, "alias_20": PyJs_alias_20_25_}, var)
     var.registers(["d"])
-    return Js({"type": Js("datatype"), "name": var.get("d").get("0").get("0")})
+    return Js(
+        {
+            "type": Js("named_arg"),
+            "name": var.get("d").get("0").get("0"),
+            "value": var.get("d").get("2").get("0"),
+        }
+    )
 
 
 PyJs_alias_20_25_._set_name("alias_20")
 var.put("alias_20", PyJs_alias_20_25_)
-var.put("alias_21", var.get("id"))
-var.put("alias_22", var.get("id"))
-var.put("alias_23", var.get("parseInt"))
-var.put("alias_24", var.get("join"))
-var.put("alias_25", var.get("join"))
-var.put("alias_26", var.get("join"))
+var.put("alias_21", var.get("parseInt"))
+var.put("alias_22", var.get("join"))
+var.put("alias_23", var.get("join"))
 pass
 
 
@@ -480,9 +472,6 @@ class TransformNearley(Transformer):
     alias_21 = var.get("alias_21").to_python()
     alias_22 = var.get("alias_22").to_python()
     alias_23 = var.get("alias_23").to_python()
-    alias_24 = var.get("alias_24").to_python()
-    alias_25 = var.get("alias_25").to_python()
-    alias_26 = var.get("alias_26").to_python()
     __default__ = lambda self, n, c, m: c if c else None
 
 
@@ -490,4 +479,4 @@ parser = Lark(grammar, start="n_expression", maybe_placeholders=False)
 
 
 def parse(text):
-    return TransformNearley().transform(parser.parse(text))[0].to_dict()
+    return TransformNearley().transform(parser.parse(text))[0]
