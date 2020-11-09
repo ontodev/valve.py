@@ -66,7 +66,7 @@ grammar = """
 !xrule_18: "."
 !xrule_19: "="
 !xrule_20: (/[0-9]/)+
-!xrule_21: (/[a-zA-Z]/)+
+!xrule_21: (/[a-zA-Z-_]/)+
 """
 
 # setting scope
