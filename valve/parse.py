@@ -479,4 +479,4 @@ parser = Lark(grammar, start="n_expression", maybe_placeholders=False)
 
 
 def parse(text):
-    return TransformNearley().transform(parser.parse(text))[0]
+    return TransformNearley().transform(parser.parse(text))[0].to_dict()
