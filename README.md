@@ -1,6 +1,12 @@
 # valve.py
 VALVE in Python
 
+* [Command Line Usage](#command-line-usage)
+	* [Configuration Files](#configuration-files)
+	* [Functions](#functions)
+	* [Other Options](#other-options)
+* [API](#api)
+
 ## Setup
 
 The latest release of VALVE can be downloaded from PyPI using `pip install`:
@@ -27,7 +33,9 @@ At this time, only TSV and CSV tables are accepted.
 
 The output `-o`/`--output` must be a path to a TSV or CSV file to write validation messages to. The output is formatted based on [COGS message tables](https://github.com/ontodev/cogs#message-tables). An example table can be found [here](https://github.com/ontodev/valve.py/blob/main/tests/resources/errors.tsv).
 
-### Configuration files
+---
+
+### Configuration Files
 
 Three VALVE configuration files (as TSV or CSV) are required:
 * `datatype`
@@ -85,6 +93,8 @@ The rule table requires the following fields:
 If the contents of the `"when table"."when column"` do not pass the `when condition`, then the `then condition` is never run. Failing the `when condition` is not considered a validation failure.
 
 [Example rule table](https://github.com/ontodev/valve.py/blob/main/tests/resources/inputs/rule.tsv)
+
+---
 
 ### Functions
 
@@ -177,6 +187,8 @@ The `tree` function may only be used as a `type` in the field table. The tree na
 Usage: `under(table.column, "top level", [direct=true])`
 
 This function looks for all descendants of `"top level"` in a tree built from `table.column`. Please note that you must first define a `table.column` (corresponding to the `table` and `column` from the field table) tree using the `tree` function. If `direct=true` is included, only *direct* children of `"top level"` are considered allowed values.
+
+---
 
 ### Other Options
 
