@@ -37,10 +37,11 @@ The output `-o`/`--output` must be a path to a TSV or CSV file to write validati
 
 ### Configuration Files
 
-Three VALVE configuration files (as TSV or CSV) are required:
+Two VALVE configuration files (as TSV or CSV) are required:
 * `datatype`
 * `field`
-* `rule`
+
+You may also include an optional `rule` table.
 
 These can be passed as individual files to the input, or you can pass a directory containing these files. [More details on these files can be found here](https://github.com/ontodev/valve/blob/main/README.md#configuration-files).
 
