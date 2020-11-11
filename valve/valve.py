@@ -39,7 +39,7 @@ rule_headers = [
 # Other allowed values: level, description, note
 
 # Supported function names
-funct_names = ["CURIE", "distinct", "from", "in", "list", "lookup", "split", "tree", "under"]
+funct_names = ["CURIE", "distinct", "in", "list", "lookup", "split", "tree", "under"]
 
 
 # ---- MISC HELPERS ----
@@ -560,32 +560,6 @@ def build_tree(
     return tree, errors
 
 
-def is_table_column(table_details, arg_pos, arg):
-    """Check if a provided arg is a valid table.column pair ({"table": str, "column": str}). The
-    table should exist in table_details, and the column should exist in the details for that table.
-
-    :param table_details: map of table name -> details (rows, fields)
-    :param arg_pos: position of arg in parent function
-    :param arg: parsed arg
-    :return: True on success or False on fail, error message on fail
-    """
-    if not isinstance(arg, dict) or "table" not in arg or "column" not in arg:
-        # must be a table.column dict
-        return False, f"argument {arg_pos} must be a table.column pair"
-    # the table and column must exist
-    table_name = arg["table"]
-    column_name = arg["column"]
-    if table_name not in table_details:
-        return False, f"argument {arg_pos} references a table ({table_name}) that does not exist"
-    if column_name not in table_details[table_name]["fields"]:
-        return (
-            False,
-            f"argument {arg_pos} references a column ({column_name}) in '{table_name}' "
-            "that does not exist",
-        )
-    return True, None
-
-
 def validate_function(config, function):
     """Validate a function.
 
@@ -598,33 +572,37 @@ def validate_function(config, function):
     if funct_name not in funct_names:
         return False, f"function name ({funct_name}) must be one of: " + ",".join(funct_names)
 
+    table_details = config["table_details"]
+
     # Special validation for each function
     args = function["args"]
     if funct_name == "CURIE":
         # CURIE(table.column)
+        x = 1
         for arg in args:
             if (not isinstance(arg, str) and not isinstance(arg, dict)) or (
                 isinstance(arg, dict) and arg["type"] != "field"
             ):
-                return False, "`CURIE` argument must be a table.column pair or a string"
-
-    elif funct_name == "from":
-        # from(table.column)
-        if len(args) != 1:
-            # must have exactly one value
-            return False, "`from` must have exactly one argument"
-        if args[0]["type"] != "field":
-            # value must be a table.column dict
-            return False, "`from` argument must be a table.column pair"
+                return False, f"`CURIE` argument {x} must be a table.column pair or a string"
+            if isinstance(arg, dict):
+                success, err = validate_table_column(table_details, "CURIE", x, arg)
+                if not success:
+                    return False, err
+            x += 1
 
     elif funct_name == "in":
         # in("x", "y", "z", ...)
         x = 1
         for arg in args:
-            # all args must be strings, not dicts
-            if not isinstance(arg, str):
-                return False, f"`in` argument {x} must be a string"
-        x += 1
+            if (not isinstance(arg, str) and not isinstance(arg, dict)) or (
+                isinstance(arg, dict) and arg["type"] != "field"
+            ):
+                return False, f"`in` argument {x} must be a table.column pair or a string"
+            if isinstance(arg, dict):
+                success, err = validate_table_column(table_details, "in", x, arg)
+                if not success:
+                    return False, err
+            x += 1
 
     elif funct_name == "list":
         # list(split, funct)
@@ -646,8 +624,12 @@ def validate_function(config, function):
             return False, "`lookup` must have exactly two arguments"
         x = 0
         while x < 2:
-            if args[x]["type"] != "field":
+            arg = args[x]
+            if not isinstance(arg, dict) or arg["type"] != "field":
                 return False, f"`lookup` argument {x} must be a table.column pair"
+            success, err = validate_table_column(table_details, "lookup", x, arg)
+            if not success:
+                return False, err
             x += 1
 
         table_name = args[0]["table"]
@@ -688,7 +670,7 @@ def validate_function(config, function):
             # can have two or three args
             return False, "`under` must have either two or three arguments"
         tree_loc = args[0]
-        if tree_loc["type"] != "field":
+        if not isinstance(tree_loc, dict) or tree_loc["type"] != "field":
             return False, f"`under` argument 1 must be a table.column pair"
 
         tree_name = f'{tree_loc["table"]}.{tree_loc["column"]}'
@@ -765,7 +747,7 @@ def validate_distinct(args):
     if len(args) > 1:
         arg_idx = 2
         for arg in args[1:]:
-            if arg["type"] != "field":
+            if not isinstance(arg, dict) or arg["type"] != "field":
                 return False, f"`distinct` argument {arg_idx} must be a table.column pair"
             arg_idx += 1
     return True, None
@@ -782,6 +764,32 @@ def validate_level(level):
     elif level.lower() not in ["error", "warn", "info"]:
         return False
     return True
+
+
+def validate_table_column(table_details, fn_name, arg_pos, arg):
+    """Validate a table.column arg pair.
+
+    :param table_details: dictionary of table name -> details
+    :param fn_name: name of function to validate
+    :param arg_pos: position of argument in function
+    :param arg: argument dict
+    :return: True if valid False if not, error message on False
+    """
+    table_name = arg["table"]
+    column_name = arg["column"]
+    if table_name not in table_details:
+        return (
+            False,
+            f"`{fn_name}` argument {arg_pos} must use a valid table name "
+            f"({table_name} is not in inputs)",
+        )
+    if column_name not in table_details[table_name]["fields"]:
+        return (
+            False,
+            f"`{fn_name}` argument {arg_pos} must use a field name from {table_name} "
+            f"('{column_name}' is not in fields)",
+        )
+    return True, None
 
 
 def validate_tree_type(config, fn_row_idx, tree_table, tree_column, tree_function, row_start=2):
@@ -803,7 +811,7 @@ def validate_tree_type(config, fn_row_idx, tree_table, tree_column, tree_functio
 
     # first arg is always table.column
     tree_arg = args.pop(0)
-    if "table" not in tree_arg:
+    if not isinstance(tree_arg, dict) or tree_arg["type"] != "field":
         errors.append(
             {"message": "the first argument of the `tree` function must be a table.column pair"}
         )
@@ -811,7 +819,6 @@ def validate_tree_type(config, fn_row_idx, tree_table, tree_column, tree_functio
 
     tree_table_name = tree_arg["table"]
     if tree_table_name != tree_table:
-        # logging.error("The table in `tree` must be the same as the `table` value")
         errors.append(
             {
                 "message": f"the table name provided in the `tree` function ({tree_table_name}) "
@@ -967,9 +974,7 @@ def run_function(config, function, value, lookup_value=None):
     if funct_name == "CURIE":
         return CURIE(table_details, args, value)
     elif funct_name == "in":
-        return in_set(args, value)
-    elif funct_name == "from":
-        return from_table_column(table_details, args, value)
+        return in_set(table_details, args, value)
     elif funct_name == "list":
         return for_each_list(config, args, value, lookup_value=lookup_value)
     elif funct_name == "lookup":
@@ -1096,38 +1101,28 @@ def distinct(table_details, args, table, column, row_start=2):
     return True, None
 
 
-def in_set(args, value):
+def in_set(table_details, args, value):
     """Method for the VALVE 'in' function. The value must be one of the arguments.
 
+    :param table_details: dictionary of table name -> details
     :param args: arguments provided to in
     :param value: value to run in on
     :return: True if value passes in, error message on False"""
-    valid = False
-    for allowed_value in args:
-        if value == allowed_value:
-            valid = True
-            break
-    if not valid:
-        return False, f"'{value}' must be one of: " + ", ".join(args)
-    return True, None
-
-
-def from_table_column(table_details, args, value):
-    """Method for the VALVE 'from' function.
-
-    The value must exist in the table.column pair defined by the only argument.
-
-    :param table_details: dictionary of table name -> details
-    :param args: arguments provided to from
-    :param value: value to run from on
-    :return: True if value passes from, error message on False"""
-    table_name = args[0]["table"]
-    column_name = args[0]["column"]
-    source_rows = table_details[table_name]["rows"]
-    allowed_values = [x[column_name] for x in source_rows if column_name in x]
-    if value not in allowed_values:
-        return False, f"'{value}' must be in {table_name}.{column_name}"
-    return True, None
+    allowed = []
+    for arg in args:
+        if isinstance(arg, str):
+            if value == arg:
+                return True, None
+            allowed.append(f'"{arg}"')
+        else:
+            table_name = arg["table"]
+            column_name = arg["column"]
+            source_rows = table_details[table_name]["rows"]
+            allowed_values = [x[column_name] for x in source_rows if column_name in x]
+            if value in allowed_values:
+                return True, None
+            allowed.append(f"{table_name}.{column_name}")
+    return False, f"'{value}' must be in: " + ", ".join(allowed)
 
 
 def for_each_list(config, args, value, lookup_value=None):
