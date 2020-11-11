@@ -5,7 +5,6 @@ prefix	Base	IRI
 external	ID	distinct(CURIE(prefix.prefix))	a CURIE with a prefix from the prefix table
 external	Label	label	
 external	Parent	tree(external.Label)	same type as external.label field i.e. label; also build a tree; parent must be in label
->>>>>>> main
 external	Material Basis	"blank or under(external.Parent, ""material entity"")"	
 exposure	Exposure Process Reported	"under(external.Parent, ""exposure process"")"	same type as external.parent field, i.e. label; must also be 'exposure process' or under that node in the external.parent tree
 exposure	Exposure Material ID	blank or CURIE(prefix.prefix)	
