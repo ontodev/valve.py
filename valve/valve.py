@@ -605,7 +605,6 @@ def validate_function(config, function):
 
     elif funct_name == "lookup":
         # lookup(table, column, column)
-        # Validate that the arguments are table-columns and the tables are the same
         if len(args) != 3:
             return False, "`lookup` must have exactly three arguments"
         table = args[0]
@@ -1118,9 +1117,9 @@ def for_each_list(config, args, value, lookup_value=None):
 def lookup(table_details, args, value, lookup_value):
     """Method for VALVE 'lookup' function.
 
-    The lookup value is found in the first table.column pair (first argument), then the allowed
-    value is retrived from the second table.column (second argument) pair on the same row. The
-    provided value must be exactly the same as the found value. Both tables must be the same.
+    The lookup value is found in the first column (second argument), then the allowed
+    value is retrieved from the second column (third argument) pair on the same row. The
+    provided value must be exactly the same as the found value.
 
     :param table_details: dictionary of table name -> details
     :param args: arguments provided to lookup
