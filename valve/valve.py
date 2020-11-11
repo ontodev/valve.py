@@ -1434,8 +1434,6 @@ def get_config_from_tables(paths, row_start=2):
         raise RuntimeError("A 'datatype' TSV or CSV must be included in the input directory(ies)")
     if not field_table:
         raise RuntimeError("A 'field' TSV or CSV must be included in the input directory(ies)")
-    if not rule_table:
-        raise RuntimeError("A 'rule' TSV or CSV must be included in the input directory(ies)")
     if not tables:
         raise RuntimeError(
             "Additional tables to validate must be included in the input directory(ies)"
@@ -1454,8 +1452,10 @@ def get_config_from_tables(paths, row_start=2):
 
     config["trees"] = trees
 
-    table_rules, add_errors = read_rule_table(config, rule_table)
-    setup_errors.extend(add_errors)
+    table_rules = {}
+    if rule_table:
+        table_rules, add_errors = read_rule_table(config, rule_table)
+        setup_errors.extend(add_errors)
 
     return {
         "datatypes": datatypes,
