@@ -140,13 +140,13 @@ Given the contents of the rule table:
 
 ... validates that when `exposure.Material` is not blank, the `exposure."Material ID"` in that same row is the `external.ID` in the same row as the `exposure.Material` value in `external.Label`:
 
-**external**
+*external*
 
 | ID      | Label |
 | ------- | ----- |
 | FOO:123 | bar   |
 
-**exposure**
+*exposure*
 
 | Material | Material ID |
 | -------- | ----------- |
