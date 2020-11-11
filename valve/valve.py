@@ -1128,7 +1128,6 @@ def lookup(table_details, args, value, lookup_value):
     :return: True if value passes lookup, error message on False"""
     if not lookup_value:
         raise Exception("A lookup_value is required for a lookup function")
-    logging.error(args)
     table_name = args[0]
     column_name = args[1]
     column_name_2 = args[2]
