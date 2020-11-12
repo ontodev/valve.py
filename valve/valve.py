@@ -25,14 +25,13 @@ datatype_headers = [
 # Other allowed values: description, instructions, replace
 
 # Required headers for 'field' table
-field_headers = ["table", "column", "type", "note"]
+field_headers = ["table", "column", "condition", "note"]
 
 # Required headers for 'rule' table
 rule_headers = [
-    "when table",
+    "table",
     "when column",
     "when condition",
-    "then table",
     "then column",
     "then condition",
 ]
@@ -237,15 +236,15 @@ def read_field_table(config, field_table, row_start=2):
                     }
                 )
             else:
-                # Parse the field type
-                parsed_type = parse(row["type"])
+                # Parse the field condition
+                parsed_type = parse(row["condition"])
                 success, err = validate_condition(config, parsed_type)
                 if not parsed_type:
                     # Type could not be parsed - grammar issue
                     errors.append(
                         {
                             "table": table_name,
-                            "cell": idx_to_a1(idx, headers.index("type") + 1),
+                            "cell": idx_to_a1(idx, headers.index("condition") + 1),
                             "rule": "invalid type",
                             "message": err,
                             "kill": True,
@@ -264,7 +263,7 @@ def read_field_table(config, field_table, row_start=2):
                             err.update(
                                 {
                                     "table": table_name,
-                                    "cell": idx_to_a1(idx, headers.index("type") + 1),
+                                    "cell": idx_to_a1(idx, headers.index("condition") + 1),
                                     "rule": "`tree` function error",
                                     "level": "ERROR",
                                     "kill": True,
@@ -284,7 +283,7 @@ def read_field_table(config, field_table, row_start=2):
                         errors.append(
                             {
                                 "table": table_name,
-                                "cell": idx_to_a1(idx, headers.index("type") + 1),
+                                "cell": idx_to_a1(idx, headers.index("condition") + 1),
                                 "rule": "`distinct` function error",
                                 "level": "ERROR",
                                 "message": err,
@@ -310,7 +309,7 @@ def read_field_table(config, field_table, row_start=2):
 
                 field_types[column] = {
                     "parsed": parsed_type,
-                    "unparsed": row["type"],
+                    "unparsed": row["condition"],
                     "field ID": idx,
                 }
                 table_fields[table] = field_types
@@ -348,29 +347,29 @@ def read_rule_table(config, rule_table):
         for row in reader:
             idx += 1
             # Validate the when table.column (check that these exist)
-            when_table = row["when table"]
-            when_table_loc = idx_to_a1(idx, headers.index("when table") + 1)
+            table = row["table"]
+            table_loc = idx_to_a1(idx, headers.index("table") + 1)
             when_column = row["when column"]
             when_column_loc = idx_to_a1(idx, headers.index("when column") + 1)
 
-            if when_table not in table_columns.keys():
+            if table not in table_columns.keys():
                 errors.append(
                     {
                         "table": table_name,
-                        "cell": when_table_loc,
+                        "cell": table_loc,
                         "rule": "unknown table",
                         "message": "the table must exist in the input",
                         "kill": True,
                     }
                 )
             else:
-                if when_column not in table_columns[when_table]:
+                if when_column not in table_columns[table]:
                     errors.append(
                         {
                             "table": table_name,
                             "cell": when_column_loc,
                             "rule": "unknown column",
-                            "message": f"the provided column must exist in '{when_table}'",
+                            "message": f"the provided column must exist in '{table}'",
                             "kill": True,
                         }
                     )
@@ -393,8 +392,8 @@ def read_rule_table(config, rule_table):
                 continue
 
             # Get the existing columns -> rules for given table
-            if when_table in table_rules:
-                column_rules = table_rules[when_table]
+            if table in table_rules:
+                column_rules = table_rules[table]
             else:
                 column_rules = {}
 
@@ -435,38 +434,25 @@ def read_rule_table(config, rule_table):
                 )
 
             # Validate the when table.column (check that these exist)
-            then_table = row["then table"]
-            then_table_loc = idx_to_a1(idx, headers.index("then table") + 1)
             then_column = row["then column"]
             then_column_loc = idx_to_a1(idx, headers.index("then column") + 1)
-            if then_table not in table_columns.keys():
+            if then_column not in table_columns[table]:
                 errors.append(
                     {
                         "table": table_name,
-                        "cell": then_table_loc,
-                        "rule": "unknown table",
-                        "message": "the table must exist in the input",
+                        "cell": then_column_loc,
+                        "rule": "unknown column",
+                        "message": f"the provided column must exist in '{table}'",
                         "kill": True,
                     }
                 )
-            else:
-                if then_column not in table_columns[then_table]:
-                    errors.append(
-                        {
-                            "table": table_name,
-                            "cell": then_column_loc,
-                            "rule": "unknown column",
-                            "message": f"the provided column must exist in '{then_table}'",
-                            "kill": True,
-                        }
-                    )
 
             # Add this condition to the dicts
             rules.append(
                 {
                     "when_condition": parsed_when_condition,
                     "unparsed_when": when_condition,
-                    "table": then_table,
+                    "table": table,
                     "column": then_column,
                     "then_condition": parsed_then_condition,
                     "unparsed_then": then_condition,
@@ -476,7 +462,7 @@ def read_rule_table(config, rule_table):
                 }
             )
             column_rules[when_column] = rules
-            table_rules[when_table] = column_rules
+            table_rules[table] = column_rules
 
     return table_rules, errors
 
@@ -618,28 +604,19 @@ def validate_function(config, function):
             return False, "`list` argument 2 must be a valid function: " + err
 
     elif funct_name == "lookup":
-        # lookup(table.column, table.column)
-        # Validate that the arguments are table-columns and the tables are the same
-        if len(args) != 2:
-            return False, "`lookup` must have exactly two arguments"
-        x = 0
-        while x < 2:
+        # lookup(table, column, column)
+        if len(args) != 3:
+            return False, "`lookup` must have exactly three arguments"
+        table = args[0]
+        if not isinstance(table, str) or table not in table_details:
+            return False, "`lookup` argument 1 must be a table name"
+        headers = table_details[table]["fields"]
+        x = 1
+        while x < 3:
             arg = args[x]
-            if not isinstance(arg, dict) or arg["type"] != "field":
-                return False, f"`lookup` argument {x} must be a table.column pair"
-            success, err = validate_table_column(table_details, "lookup", x, arg)
-            if not success:
-                return False, err
+            if not isinstance(arg, str) or arg not in headers:
+                return False, f"`lookup` argument {x + 1} must be a column name in '{table}'"
             x += 1
-
-        table_name = args[0]["table"]
-        table_name_2 = args[1]["table"]
-        if table_name != table_name_2:
-            return (
-                False,
-                f"the first table name ({table_name}) must be the same as "
-                f"the second table name ({table_name_2})",
-            )
 
     elif funct_name == "split":
         # split(split, int, funct, funct, ...)
@@ -792,12 +769,12 @@ def validate_table_column(table_details, fn_name, arg_pos, arg):
     return True, None
 
 
-def validate_tree_type(config, fn_row_idx, tree_table, tree_column, tree_function, row_start=2):
+def validate_tree_type(config, fn_row_idx, table_name, parent_column, tree_function, row_start=2):
     """Validate a 'tree' field type and build the tree.
 
-    :param config:
-    :param tree_table: name of table to build tree from
-    :param tree_column: name of column in table to build tree from
+    :param config: dict of VALVE config
+    :param table_name: name of table to build tree from
+    :param parent_column: name of column in table to build tree from
     :param fn_row_idx: row that 'tree' appears in from field
     :param tree_function: the parsed field type (tree function)
     :param row_start: row number that contents to validate start on
@@ -809,52 +786,41 @@ def validate_tree_type(config, fn_row_idx, tree_table, tree_column, tree_functio
         errors.append({"message": "the `tree` function must have between one and three arguments"})
         return None, errors
 
-    # first arg is always table.column
-    tree_arg = args.pop(0)
-    if not isinstance(tree_arg, dict) or tree_arg["type"] != "field":
+    # first arg is column
+    child_column = args.pop(0)
+    if not isinstance(child_column, str):
         errors.append(
-            {"message": "the first argument of the `tree` function must be a table.column pair"}
+            {"message": "the first argument of the `tree` function must be a column name"}
         )
         return None, errors
 
-    tree_table_name = tree_arg["table"]
-    if tree_table_name != tree_table:
-        errors.append(
-            {
-                "message": f"the table name provided in the `tree` function ({tree_table_name}) "
-                f"must be the same as the value in the 'table' column ({tree_table})",
-            }
-        )
-        return None, errors
-    else:
-        # Parse the rest of the args
-        add_tree_name = None
-        split_char = None
-        if args:
-            x = 0
-            while x < len(args):
-                arg = args[x]
-                if "name" in arg and arg["name"] == "split":
-                    split_char = arg["value"]
-                elif "table" in arg:
-                    add_tree_name = f'{arg["table"]}.{arg["column"]}'
-                else:
-                    errors.append(
-                        {"message": f"`tree` arguments must be table.column pair or split=CHAR"}
-                    )
-                    return None, errors
-                x += 1
-        child_column = tree_arg["column"]
-        return build_tree(
-            config,
-            fn_row_idx,
-            tree_table,
-            tree_column,
-            child_column,
-            row_start=row_start,
-            add_tree_name=add_tree_name,
-            split_char=split_char,
-        )
+    # Parse the rest of the args
+    add_tree_name = None
+    split_char = None
+    if args:
+        x = 0
+        while x < len(args):
+            arg = args[x]
+            if "name" in arg and arg["name"] == "split":
+                split_char = arg["value"]
+            elif "table" in arg:
+                add_tree_name = f'{arg["table"]}.{arg["column"]}'
+            else:
+                errors.append(
+                    {"message": f"`tree` arguments must be table.column pair or split=CHAR"}
+                )
+                return None, errors
+            x += 1
+    return build_tree(
+        config,
+        fn_row_idx,
+        table_name,
+        parent_column,
+        child_column,
+        row_start=row_start,
+        add_tree_name=add_tree_name,
+        split_char=split_char,
+    )
 
 
 # ---- CONDITION VALIDATION ----
@@ -1151,9 +1117,9 @@ def for_each_list(config, args, value, lookup_value=None):
 def lookup(table_details, args, value, lookup_value):
     """Method for VALVE 'lookup' function.
 
-    The lookup value is found in the first table.column pair (first argument), then the allowed
-    value is retrived from the second table.column (second argument) pair on the same row. The
-    provided value must be exactly the same as the found value. Both tables must be the same.
+    The lookup value is found in the first column (second argument), then the allowed
+    value is retrieved from the second column (third argument) pair on the same row. The
+    provided value must be exactly the same as the found value.
 
     :param table_details: dictionary of table name -> details
     :param args: arguments provided to lookup
@@ -1162,9 +1128,9 @@ def lookup(table_details, args, value, lookup_value):
     :return: True if value passes lookup, error message on False"""
     if not lookup_value:
         raise Exception("A lookup_value is required for a lookup function")
-    table_name = args[0]["table"]
-    column_name = args[0]["column"]
-    column_name_2 = args[1]["column"]
+    table_name = args[0]
+    column_name = args[1]
+    column_name_2 = args[2]
     for row in table_details[table_name]["rows"]:
         maybe_value = row[column_name]
         if maybe_value == lookup_value:
