@@ -38,7 +38,7 @@ rule_headers = [
 # Other allowed values: level, description, note
 
 # Supported function names
-funct_names = ["CURIE", "distinct", "in", "list", "lookup", "split", "tree", "under"]
+funct_names = ["CURIE", "distinct", "in", "sub", "list", "lookup", "split", "tree", "under"]
 
 
 # ---- MISC HELPERS ----
@@ -555,6 +555,7 @@ def validate_function(config, function):
     :return: parsed function or None on error, error table entry on error
     """
     errors = []
+    print(function)
     funct_name = function["name"]
     if funct_name not in funct_names:
         return False, f"function name ({funct_name}) must be one of: " + ",".join(funct_names)
@@ -590,6 +591,20 @@ def validate_function(config, function):
                 if not success:
                     return False, err
             x += 1
+
+    elif funct_name == "sub":
+        # sub(match, replace, expression)
+        if len(args) != 3:
+            return False, "`sub` must have exactly three arguments"
+        if not isinstance(args[0], str):
+            return False, "`sub` argument 1 must be a string"
+        if not isinstance(args[1], str):
+            return False, "`sub` argument 1 must be a string"
+
+        # second value must be a valid function
+        # success, err = validate_function(config, args[1])
+        # if not success:
+        #     return False, "`sub` argument 3 must be a valid expression: " + err
 
     elif funct_name == "list":
         # list(split, funct)
@@ -942,6 +957,8 @@ def run_function(config, function, value, lookup_value=None):
         return CURIE(table_details, args, value)
     elif funct_name == "in":
         return in_set(table_details, args, value)
+    elif funct_name == "sub":
+        return substitute(config, args, value, lookup_value=lookup_value)
     elif funct_name == "list":
         return for_each_list(config, args, value, lookup_value=lookup_value)
     elif funct_name == "lookup":
@@ -1090,6 +1107,28 @@ def in_set(table_details, args, value):
                 return True, None
             allowed.append(f"{table_name}.{column_name}")
     return False, f"'{value}' must be in: " + ", ".join(allowed)
+
+
+def substitute(config, args, value, lookup_value=None):
+    """Method for the VALVE 'sub' function.
+
+    Substitute match with replacement, then evaluate the expression.
+
+    :param config: valve config dictionary
+    :param args: arguments provided to list
+    :param value: value to run list on
+    :param lookup_value: value required for 'lookup' when 'lookup' is used as the sub-function
+    :return: True if value passes list, error message on False"""
+    pattern = args[0]
+    replacement = args[1]
+    if not isinstance(replacement, str):
+        replacement = ""
+        subfunc = args[1]
+    else:
+        subfunc = args[2]
+    value = re.sub(pattern, replacement, value)
+    print("VALUE", value)
+    return run_function(config, subfunc, value, lookup_value=lookup_value)
 
 
 def for_each_list(config, args, value, lookup_value=None):

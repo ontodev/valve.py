@@ -227,7 +227,10 @@ var.put("join", PyJs_join_8_)
 def PyJs_alias_0_9_(d, this, arguments, var=var):
     var = Scope({"d": d, "this": this, "arguments": arguments, "alias_0": PyJs_alias_0_9_}, var)
     var.registers(["d"])
-    return var.get("d").get("1").callprop("join", Js(""))
+    if var.get("d").get("1"):
+        return var.get("d").get("1").callprop("join", Js(""))
+    else:
+        return Js("")
 
 
 PyJs_alias_0_9_._set_name("alias_0")
