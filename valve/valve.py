@@ -555,7 +555,6 @@ def validate_function(config, function):
     :return: parsed function or None on error, error table entry on error
     """
     errors = []
-    print(function)
     funct_name = function["name"]
     if funct_name not in funct_names:
         return False, f"function name ({funct_name}) must be one of: " + ",".join(funct_names)
@@ -638,11 +637,11 @@ def validate_function(config, function):
         # split(split, int, funct, funct, ...)
         if len(args) < 4:
             return False, "`split` must have at least four arguments"
-        if not isinstance(args.pop(0), str):
+        if not isinstance(args[0], str):
             # first value must be a string
             return False, "`split` argument 1 must be a string"
         try:
-            funct_count = int(args.pop(0))
+            funct_count = int(args[1])
         except ValueError:
             # second value must be a number (passed as str)
             return False, "`split` argument 2 must be a whole number"
@@ -1121,13 +1120,8 @@ def substitute(config, args, value, lookup_value=None):
     :return: True if value passes list, error message on False"""
     pattern = args[0]
     replacement = args[1]
-    if not isinstance(replacement, str):
-        replacement = ""
-        subfunc = args[1]
-    else:
-        subfunc = args[2]
+    subfunc = args[2]
     value = re.sub(pattern, replacement, value)
-    print("VALUE", value)
     return run_function(config, subfunc, value, lookup_value=lookup_value)
 
 

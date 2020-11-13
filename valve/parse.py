@@ -1,3 +1,5 @@
+import js2py
+
 from js2py.pyjs import *
 from lark import Lark, Transformer
 
@@ -195,14 +197,7 @@ def PyJs_objects_6_(list, this, arguments, var=var):
     def PyJs_anonymous_7_(item, this, arguments, var=var):
         var = Scope({"item": item, "this": this, "arguments": arguments}, var)
         var.registers(["item"])
-        return var.get("item") and (
-            (
-                Js("undefined")
-                if PyJsStrictEq(var.get("item", throw=False).typeof(), Js("undefined"))
-                else var.get("_typeof")(var.get("item"))
-            )
-            == Js("object")
-        )
+        return (var.get('item') and ((Js('undefined') if PyJsStrictEq(var.get('item',throw=False).typeof(),Js('undefined')) else var.get('_typeof')(var.get('item')))==Js('object')))
 
     PyJs_anonymous_7_._set_name("anonymous")
     return var.get("list").callprop("filter", PyJs_anonymous_7_)
@@ -391,7 +386,7 @@ def PyJs_alias_17_21_(d, this, arguments, var=var):
     def PyJs_anonymous_22_(item, this, arguments, var=var):
         var = Scope({"item": item, "this": this, "arguments": arguments}, var)
         var.registers(["item"])
-        return var.get("item") and (var.get("item") != Js(","))
+        return (not isinstance(var.get("item"), js2py.base.PyJsUndefined) and PyJsStrictNeq(var.get('item'),var.get(u"null")) and (var.get('item')!=Js(',')))
 
     PyJs_anonymous_22_._set_name("anonymous")
     return var.get("flatten")(var.get("d")).callprop("filter", PyJs_anonymous_22_)
