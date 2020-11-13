@@ -9,6 +9,9 @@
 # 8. Add x flag to regex using '\n'
 # 9. Format using black
 
+build:
+	mkdir -p $@
+
 build/valve_grammar.ne: | build
 	curl -Lk https://raw.githubusercontent.com/ontodev/valve.js/main/valve_grammar.ne > $@
 
