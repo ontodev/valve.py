@@ -630,32 +630,33 @@ def validate_function(config, function):
         # split(split, int, expr, expr, ...)
         if len(args) < 4:
             return False, "`split` must have at least four arguments"
-        if not isinstance(args.pop(0), str):
+        if not isinstance(args[0], str):
             # first value must be a string
             return False, "`split` argument 1 must be a string"
         try:
-            funct_count = int(args.pop(0))
+            funct_count = int(args[0])
         except ValueError:
             # second value must be a number (passed as str)
             return False, "`split` argument 2 must be a whole number"
         if len(args) != funct_count:
             # rem args must be equal to the last value
             return False, f"`split` must include {funct_count} functions"
-        x = 3
-        for arg in args:
+        x = 2
+        while x < len(args):
+            arg = args[x]
             # rem args must be valid functions or datatypes
             if isinstance(arg, str):
                 if arg not in datatypes:
                     return (
                         False,
-                        f"`split` argument {x} ({arg}) must be a valid datatype or function",
+                        f"`split` argument {x + 1} ({arg}) must be a valid datatype or function",
                     )
             else:
                 success, err = validate_function(config, arg)
                 if not success:
                     return (
                         False,
-                        f"`split` argument {x} must be a valid datatype or function: " + err,
+                        f"`split` argument {x + 1} must be a valid datatype or function: " + err,
                     )
             x += 1
 
@@ -805,7 +806,7 @@ def validate_tree_type(config, fn_row_idx, table_name, parent_column, tree_funct
         return None, errors
 
     # first arg is column
-    child_column = args.pop(0)
+    child_column = args[0]
     if not isinstance(child_column, str):
         errors.append(
             {"message": "the first argument of the `tree` function must be a column name"}
@@ -816,7 +817,7 @@ def validate_tree_type(config, fn_row_idx, table_name, parent_column, tree_funct
     add_tree_name = None
     split_char = None
     if args:
-        x = 0
+        x = 1
         while x < len(args):
             arg = args[x]
             if "name" in arg and arg["name"] == "split":
