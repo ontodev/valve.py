@@ -211,7 +211,7 @@ def read_field_table(config, field_table, row_start=2):
         missing = list(set(field_headers) - set(headers))
         if missing:
             raise Exception(
-                "Missing required columns for 'rule' table table: " + ", ".join(missing)
+                "Missing required columns for 'rule' table: " + ", ".join(missing)
             )
 
         # Validate field table contents
