@@ -210,7 +210,9 @@ def read_field_table(config, field_table, row_start=2):
         headers = reader.fieldnames
         missing = list(set(field_headers) - set(headers))
         if missing:
-            raise Exception("Missing required columns for 'rule' table table: " + ", ".join(missing))
+            raise Exception(
+                "Missing required columns for 'rule' table table: " + ", ".join(missing)
+            )
 
         # Validate field table contents
         idx = 1
@@ -560,6 +562,7 @@ def validate_function(config, function):
         return False, f"function name ({funct_name}) must be one of: " + ",".join(funct_names)
 
     table_details = config["table_details"]
+    datatypes = config["datatypes"]
 
     # Special validation for each function
     args = function["args"]
@@ -592,17 +595,21 @@ def validate_function(config, function):
             x += 1
 
     elif funct_name == "list":
-        # list(split, funct)
+        # list(split, expr)
         if len(args) != 2:
             # must have exactly two values
             return False, "`list` must have exactly two arguments"
         if not isinstance(args[0], str):
             return False, "`list` argument 1 must be a string"
 
-        # second value must be a valid function
-        success, err = validate_function(config, args[1])
-        if not success:
-            return False, "`list` argument 2 must be a valid function: " + err
+        # second value must be a valid function or datatype
+        if isinstance(args[1], str):
+            if args[1] not in datatypes:
+                return False, f"`list` argument 2 ({args[1]}) must be a valid datatype or function"
+        else:
+            success, err = validate_function(config, args[1])
+            if not success:
+                return False, "`list` argument 2 must be a valid datatype or function: " + err
 
     elif funct_name == "lookup":
         # lookup(table, column, column)
@@ -620,7 +627,7 @@ def validate_function(config, function):
             x += 1
 
     elif funct_name == "split":
-        # split(split, int, funct, funct, ...)
+        # split(split, int, expr, expr, ...)
         if len(args) < 4:
             return False, "`split` must have at least four arguments"
         if not isinstance(args.pop(0), str):
@@ -636,10 +643,20 @@ def validate_function(config, function):
             return False, f"`split` must include {funct_count} functions"
         x = 3
         for arg in args:
-            # rem args must be valid functions
-            success, err = validate_function(config, arg)
-            if not success:
-                return False, f"`split` argument {x} must be a valid function: " + err
+            # rem args must be valid functions or datatypes
+            if isinstance(arg, str):
+                if arg not in datatypes:
+                    return (
+                        False,
+                        f"`split` argument {x} ({arg}) must be a valid datatype or function",
+                    )
+            else:
+                success, err = validate_function(config, arg)
+                if not success:
+                    return (
+                        False,
+                        f"`split` argument {x} must be a valid datatype or function: " + err,
+                    )
             x += 1
 
     elif funct_name == "under":
@@ -1095,21 +1112,27 @@ def in_set(table_details, args, value):
 def for_each_list(config, args, value, lookup_value=None):
     """Method for the VALVE 'list' function.
 
-    Split the value on the first argument and perform the function provided as the second argument
-    on all values.
+    Split the value on the first argument and perform the function or datatype check provided as the
+    second argument on all values.
 
     :param config: valve config dictionary
     :param args: arguments provided to list
     :param value: value to run list on
-    :param lookup_value: value required for 'lookup' when 'lookup' is used as the sub-function
+    :param lookup_value: value required for 'lookup' when 'lookup' is used as the sub-expression
     :return: True if value passes list, error message on False"""
     split_char = args[0]
-    sub_funct = args[1]
+    expr = args[1]
     errs = []
+    datatypes = config["datatypes"]
     for v in value.split(split_char):
-        success, err = run_function(config, sub_funct, v, lookup_value=lookup_value)
-        if not success:
-            errs.append(err)
+        if isinstance(expr, str):
+            success, _ = is_datatype(datatypes, expr, v)
+            if not success:
+                errs.append(f"sub-value '{v}' must be of datatype '{expr}'")
+        else:
+            success, err = run_function(config, expr, value, lookup_value=lookup_value)
+            if not success:
+                errs.append(err)
     if errs:
         return False, "\n".join(errs)
     return True, None
@@ -1147,12 +1170,12 @@ def split(config, args, value, lookup_value=None):
 
     Split the value on the first argument. The number of values after the split must match the
     number provided by the second argument. Iterate through the split values and perform the
-    corresponding function from the remaining arguments.
+    corresponding function or datatype match from the remaining arguments.
 
     :param config: valve config dictionary
     :param args: arguments provided to split
     :param value: value to run split on
-    :param lookup_value: value required for 'lookup' when 'lookup' is used as a sub-function
+    :param lookup_value: value required for 'lookup' when 'lookup' is used as a sub-expression
     :return: True if value passes split, error message on False"""
     split_char = args[0]
     split_count = int(args[1])
@@ -1160,13 +1183,19 @@ def split(config, args, value, lookup_value=None):
     if len(value_split) != split_count:
         return False, f"'{args[1]}' must have {split_count} elements when split on '{split_char}'"
     errs = []
+    datatypes = config["datatypes"]
     x = 0
     while x < split_count:
         v = value_split[x]
-        sub_funct = args[x + 2]
-        success, err = run_function(config, sub_funct, v, lookup_value=lookup_value)
-        if not success:
-            errs.append(err)
+        expr = args[x + 2]
+        if isinstance(expr, str):
+            success, _ = is_datatype(datatypes, expr, v)
+            if not success:
+                errs.append(f"sub-value '{v}' must be of datatype '{expr}'")
+        else:
+            success, err = run_function(config, expr, value, lookup_value=lookup_value)
+            if not success:
+                errs.append(err)
         x += 1
     if errs:
         return False, " & ".join(errs)
