@@ -25,7 +25,7 @@ datatype_headers = [
 # Other allowed values: description, instructions, replace
 
 # Required headers for 'field' table
-field_headers = ["table", "column", "condition", "note"]
+field_headers = ["table", "column", "condition"]
 
 # Required headers for 'rule' table
 rule_headers = [
@@ -146,7 +146,7 @@ def read_datatype_table(datatype_table):
         headers = reader.fieldnames
         missing = list(set(datatype_headers) - set(headers))
         if missing:
-            raise Exception("Missing required headers for 'datatype: " + ", ".join(missing))
+            raise Exception("Missing required column for 'datatype' table: " + ", ".join(missing))
         idx = 2
         for row in reader:
             dt = row["datatype"]
@@ -208,8 +208,9 @@ def read_field_table(config, field_table, row_start=2):
 
         # Validate headers, quit on error
         headers = reader.fieldnames
-        if headers != field_headers:
-            raise Exception(f"Headers for 'field' at {field_table} do not match required fields")
+        missing = list(set(field_headers) - set(headers))
+        if missing:
+            raise Exception("Missing required columns for 'rule' table table: " + ", ".join(missing))
 
         # Validate field table contents
         idx = 1
@@ -341,7 +342,7 @@ def read_rule_table(config, rule_table):
         headers = reader.fieldnames
         missing = list(set(rule_headers) - set(headers))
         if missing:
-            raise Exception("Missing required headers for 'field': " + ", ".join(missing))
+            raise Exception("Missing required columns for 'rule' table: " + ", ".join(missing))
 
         idx = 1
         for row in reader:
