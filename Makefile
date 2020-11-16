@@ -7,7 +7,8 @@
 # 6. Add escaping for double quotes (double quotes must be escaped within double quoted text)
 # 7. Fix empty escaping (Lark will yell at you for \\)
 # 8. Add x flag to regex using '\n'
-# 9. Format using black
+# 9. Get the first result and convert to a Python dictionary
+# 10. Format using black
 
 build:
 	mkdir -p $@
@@ -29,5 +30,6 @@ valve/parse.py: build/valve_grammar.py
 	perl -pe "s/\\\'/'/g" | \
 	perl -pe 's/"\\\"/"\\\\"/g' | \
 	perl -pe 's/"\\\\"$$/"\\\\\\\\"/g' | \
-	perl -pe 's/(\/\[.*\\n.*]\/)/\1x/g'> $@
+	perl -pe 's/(\/\[.*\\n.*]\/)/\1x/g'| \
+	sed -e "s/parse(text))/parse(text))[0].to_dict()/g" > $@
 	black --line-length 100 $@
