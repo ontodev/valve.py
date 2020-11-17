@@ -121,6 +121,7 @@ def get_table_details(tables, row_start=2):
             reader = csv.DictReader(f, delimiter=sep)
             table_name = os.path.splitext(os.path.basename(table))[0]
             table_details[table_name] = {
+                "path": table,
                 "fields": reader.fieldnames,
                 "rows": list(reader)[row_start - 2 :],
             }
@@ -242,13 +243,12 @@ def read_field_table(config, field_table, row_start=2):
                 # Parse the field condition
                 parsed_type = parse(row["condition"])
                 success, err = validate_condition(config, parsed_type)
-                if not parsed_type:
-                    # Type could not be parsed - grammar issue
+                if not success:
                     errors.append(
                         {
                             "table": table_name,
                             "cell": idx_to_a1(idx, headers.index("condition") + 1),
-                            "rule": "invalid type",
+                            "rule": "invalid condition",
                             "message": err,
                             "kill": True,
                         }
@@ -595,18 +595,20 @@ def validate_function(config, function):
             x += 1
 
     elif funct_name == "sub":
-        # sub(match, replace, expression)
-        if len(args) != 3:
-            return False, "`sub` must have exactly three arguments"
-        if not isinstance(args[0], str):
-            return False, "`sub` argument 1 must be a string"
-        if not isinstance(args[1], str):
-            return False, "`sub` argument 1 must be a string"
+        # sub(regex, expr)
+        if len(args) != 2:
+            return False, "`sub` must have exactly two arguments"
+        if not isinstance(args[0], dict) or args[0]["type"] != "regex":
+            return False, "`sub` argument 1 must be a regex pattern"
 
         # second value must be a valid function
-        # success, err = validate_function(config, args[1])
-        # if not success:
-        #     return False, "`sub` argument 3 must be a valid expression: " + err
+        if isinstance(args[1], str):
+            if args[1] not in datatypes:
+                return False, f"`sub` argument 2 ({args[1]}) must be a valid datatype or function"
+        else:
+            success, err = validate_function(config, args[1])
+            if not success:
+                return False, "`sub` argument 2 must be a valid datatype or function: " + err
 
     elif funct_name == "list":
         # list(split, expr)
@@ -652,7 +654,7 @@ def validate_function(config, function):
         except ValueError:
             # second value must be a number (passed as str)
             return False, "`split` argument 2 must be a whole number"
-        if len(args) != funct_count:
+        if len(args) - 2 != funct_count:
             # rem args must be equal to the last value
             return False, f"`split` must include {funct_count} functions"
         x = 2
@@ -1136,10 +1138,9 @@ def substitute(config, args, value, lookup_value=None):
     :param value: value to run list on
     :param lookup_value: value required for 'lookup' when 'lookup' is used as the sub-function
     :return: True if value passes list, error message on False"""
-    pattern = args[0]
-    replacement = args[1]
-    subfunc = args[2]
-    value = re.sub(pattern, replacement, value)
+    regex = args[0]
+    subfunc = args[1]
+    value = re.sub(regex["pattern"], regex["replace"], value)
     return run_function(config, subfunc, value, lookup_value=lookup_value)
 
 
@@ -1164,7 +1165,7 @@ def for_each_list(config, args, value, lookup_value=None):
             if not success:
                 errs.append(f"sub-value '{v}' must be of datatype '{expr}'")
         else:
-            success, err = run_function(config, expr, value, lookup_value=lookup_value)
+            success, err = run_function(config, expr, v, lookup_value=lookup_value)
             if not success:
                 errs.append(err)
     if errs:
@@ -1227,7 +1228,7 @@ def split(config, args, value, lookup_value=None):
             if not success:
                 errs.append(f"sub-value '{v}' must be of datatype '{expr}'")
         else:
-            success, err = run_function(config, expr, value, lookup_value=lookup_value)
+            success, err = run_function(config, expr, v, lookup_value=lookup_value)
             if not success:
                 errs.append(err)
         x += 1
@@ -1542,8 +1543,9 @@ def validate(o, row_start=2, distinct_messages=None):
 
         if add_errors and distinct_messages:
             # Update errors to only be distinct messages in a new table
+            table_path = table_details[table]["path"]
             update_errors = collect_distinct_messages(
-                table_details, distinct_messages, table, add_errors
+                table_details, distinct_messages, table_path, add_errors
             )
             errors.extend(update_errors)
         elif not distinct_messages:

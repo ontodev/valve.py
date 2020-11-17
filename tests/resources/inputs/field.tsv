@@ -12,3 +12,5 @@ exposure	Exposure Material Reported	"blank or under(external.Parent, ""material 
 exposure	Disease Ontology ID	blank or CURIE(prefix.prefix)	
 exposure	Disease Reported	"blank or under(external.Parent, ""disease"")"	
 exposure	Disease Stage Reported	"blank or under(external.Parent, ""disease stage"")"	
+cell	populationNameReported	split(" & ", 2, in(protein.Label), list(", ", sub(s/(\[.*\])?(\+|-)*$//g, in(protein.Synonym))))	
+cell	populationDefnitionReported	list(", ", sub(s/(\[.*\])?(\+|-)*$//g, in(protein.Synonym)))	
