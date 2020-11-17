@@ -18,7 +18,7 @@ from .parse import parse
 # Required headers for 'datatype' table
 datatype_headers = [
     "datatype",
-    "parent",
+    "parents",
     "match",
     "level",
 ]
@@ -52,10 +52,10 @@ def build_datatype_ancestors(datatypes, datatype):
     :return: list of ancestor datatypes
     """
     ancestors = []
-    parent = datatypes[datatype].get("parent")
-    if parent:
-        ancestors.append(parent)
-        ancestors.extend(build_datatype_ancestors(datatypes, parent))
+    parents = datatypes[datatype].get("parents")
+    for p in parents:
+        ancestors.append(p)
+        ancestors.extend(build_datatype_ancestors(datatypes, p))
     return ancestors
 
 
@@ -140,7 +140,7 @@ def read_datatype_table(datatype_table):
     table_name = os.path.splitext(os.path.basename(datatype_table))[0]
 
     # Read the datatypes from the sheet
-    datatypes = {}
+    datatypes = defaultdict(dict)
     with open(datatype_table, "r") as f:
         reader = csv.DictReader(f, delimiter=sep)
         headers = reader.fieldnames
@@ -150,7 +150,24 @@ def read_datatype_table(datatype_table):
         idx = 2
         for row in reader:
             dt = row["datatype"]
+            if not re.match(r"^(?![0-9])[A-Za-z0-9-_]+$", dt):
+                errors.append(
+                    {
+                        "table": table_name,
+                        "cell": idx_to_a1(idx, headers.index("datatype") + 1),
+                        "rule": "invalid datatype name",
+                        "message": "the datatype must use only alphanumeric characters, dashes, "
+                                   "and underscores and must not start with an integer",
+                        "kill": True,
+                    }
+                )
             del row["datatype"]
+
+            parents_str = row["parents"].strip()
+            parents = []
+            if parents_str != "":
+                parents = parents_str.split(" ")
+            row["parents"] = parents
             row["idx"] = idx
             datatypes[dt] = row
             idx += 1
@@ -159,18 +176,18 @@ def read_datatype_table(datatype_table):
     dt_names = datatypes.keys()
     for dt, details in datatypes.items():
         idx = details["idx"]
-
-        parent = details["parent"]
-        if parent != "" and parent not in dt_names:
-            errors.append(
-                {
-                    "table": table_name,
-                    "cell": idx_to_a1(idx, headers.index("parent") + 1),
-                    "rule": "unknown parent datatype",
-                    "message": "the parent datatype must be defined in the 'datatype' sheet",
-                    "kill": True,
-                }
-            )
+        for p in details["parents"]:
+            if p not in dt_names:
+                errors.append(
+                    {
+                        "table": table_name,
+                        "cell": idx_to_a1(idx, headers.index("parents") + 1),
+                        "rule": "unknown parent datatype",
+                        "message":
+                        f" parent datatype ({p}) must be defined in the 'datatype' sheet",
+                        "kill": True,
+                    }
+                )
 
         level = details.get("level", "")
         if not validate_level(level):
@@ -183,6 +200,7 @@ def read_datatype_table(datatype_table):
                     "kill": True,
                 }
             )
+
     return datatypes, errors
 
 
