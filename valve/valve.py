@@ -1455,7 +1455,7 @@ def get_config_from_tables(paths, row_start=2):
                     raise RuntimeError(f"More than one 'field' table found: {f}, {field_table}")
                 field_table = f
             elif fname == "rule":
-                if field_table:
+                if rule_table:
                     raise RuntimeError(f"More than one 'rule' table found: {f}, {rule_table}")
                 rule_table = f
             else:
