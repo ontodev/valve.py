@@ -997,28 +997,6 @@ def any_of(config, args, value, lookup_value=None):
     return False, f"'{value}' must meet one of: " + ", ".join(conditions)
 
 
-def not_any_of(config, args, value, lookup_value=None):
-    """Method for the VALVE 'not' function.
-
-    :param config: valve config dictionary
-    :param args: arguments provided to not
-    :param value: value to run not on
-    :param lookup_value: value required for 'lookup' when lookup is in the arguments
-    :return: True if value does not pass any condition in the arguments
-    """
-    conditions = []
-    for arg in args:
-        if not meets_condition(config, arg, "", value, when_value=lookup_value)[0]:
-            # As long as one is "NOT" met, this passes
-            return True, None
-        if arg["type"] == "string":
-            conditions.append(arg["value"])
-        else:
-            conditions.append(arg["name"])
-    # If we get here, the negation conditions were not met
-    return False, f"'{value}' must not meet any of: " + ", ".join(conditions)
-
-
 def CURIE(table_details, args, value):
     """Method for the VALVE 'CURIE' function. The value must be a CURIE and the prefix of the value
     must be in the table.column pair or string defined by the arg (1+ args)
@@ -1150,6 +1128,28 @@ def in_set(table_details, args, value):
                 return True, None
             allowed.append(f"{table_name}.{column_name}")
     return False, f"'{value}' must be in: " + ", ".join(allowed)
+
+
+def not_any_of(config, args, value, lookup_value=None):
+    """Method for the VALVE 'not' function.
+
+    :param config: valve config dictionary
+    :param args: arguments provided to not
+    :param value: value to run not on
+    :param lookup_value: value required for 'lookup' when lookup is in the arguments
+    :return: True if value does not pass any condition in the arguments
+    """
+    conditions = []
+    for arg in args:
+        if not meets_condition(config, arg, "", value, when_value=lookup_value)[0]:
+            # As long as one is "NOT" met, this passes
+            return True, None
+        if arg["type"] == "string":
+            conditions.append(arg["value"])
+        else:
+            conditions.append(arg["name"])
+    # If we get here, the negation conditions were not met
+    return False, f"'{value}' must not meet any of: " + ", ".join(conditions)
 
 
 def substitute(config, args, value, lookup_value=None):
