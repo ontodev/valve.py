@@ -31,5 +31,6 @@ valve/parse.py: build/valve_grammar.py
 	perl -pe 's/"\\\"/"\\\\"/g' | \
 	perl -pe 's/"\\\\"$$/"\\\\\\\\"/g' | \
 	perl -pe 's/(\/\[.*\\n.*]\/)/\1x/g'| \
-	perl -pe 's/\[\^\/\]/[^\\\/]/g' > $@
+	perl -pe 's/\[\^\/\]/[^\\\/]/g' | \
+	sed -e "s/parse(text))/parse(text)).to_dict()/g" > $@
 	black --line-length 100 $@
