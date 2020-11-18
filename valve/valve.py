@@ -38,7 +38,7 @@ rule_headers = [
 # Other allowed values: level, description, note
 
 # Supported function names
-funct_names = ["CURIE", "distinct", "in", "sub", "list", "lookup", "split", "tree", "under"]
+funct_names = ["any", "CURIE", "distinct", "in", "not", "sub", "list", "lookup", "tree", "under"]
 
 
 # ---- MISC HELPERS ----
@@ -547,6 +547,21 @@ def build_tree(
     return tree, errors
 
 
+def is_type(arg, types):
+    """Validate that an arg is one of the given types.
+
+    :param arg: argument to validate
+    :param types: valid type or types as list
+    :return: True if arg is dict and has "type" in the list
+    """
+    if not isinstance(arg, dict):
+        return False
+    for t in types:
+        if arg["type"] == t:
+            return True
+    return False
+
+
 def validate_expression(config, funct_name, pos, arg):
     """Validate that an argument is a function or datatype.
 
@@ -556,15 +571,15 @@ def validate_expression(config, funct_name, pos, arg):
     :param arg: argument to validate
     :return: True on success False on error, error message on error
     """
-    if not isinstance(arg, dict):
+    if not is_type(arg, ["string", "function"]):
         return False, f"`{funct_name}` argument {pos} ({arg}) must be a valid datatype or function"
-    if arg["type"] == "datatype":
+    if arg["type"] == "string":
         datatypes = config["datatypes"]
-        dt_name = arg["name"]
+        dt_name = arg["value"]
         if dt_name not in datatypes:
             return (
                 False,
-                f"`{funct_name}` argument {pos} datatype ({dt_name}) must be a defined datatype",
+                f"`{funct_name}` argument {pos} ({dt_name}) must be a defined datatype",
             )
     else:
         success, err = validate_function(config, arg)
@@ -592,15 +607,22 @@ def validate_function(config, function):
 
     # Special validation for each function
     args = function["args"]
-    if funct_name == "CURIE":
+    if funct_name == "any":
+        # any(expr, expr, ...)
+        x = 1
+        for arg in args:
+            success, err = validate_expression(config, "any", x, arg)
+            if not success:
+                return False, err
+            x += 1
+
+    elif funct_name == "CURIE":
         # CURIE(table.column)
         x = 1
         for arg in args:
-            if (not isinstance(arg, str) and not isinstance(arg, dict)) or (
-                isinstance(arg, dict) and arg["type"] != "field"
-            ):
+            if not is_type(arg, ["string", "field"]):
                 return False, f"`CURIE` argument {x} must be a table.column pair or a string"
-            if isinstance(arg, dict):
+            if arg["type"] == "field":
                 success, err = validate_table_column(table_details, "CURIE", x, arg)
                 if not success:
                     return False, err
@@ -610,21 +632,28 @@ def validate_function(config, function):
         # in("x", "y", "z", ...)
         x = 1
         for arg in args:
-            if (not isinstance(arg, str) and not isinstance(arg, dict)) or (
-                isinstance(arg, dict) and arg["type"] != "field"
-            ):
+            if not is_type(arg, ["string", "field"]):
                 return False, f"`in` argument {x} must be a table.column pair or a string"
-            if isinstance(arg, dict):
+            if arg["type"] == "field":
                 success, err = validate_table_column(table_details, "in", x, arg)
                 if not success:
                     return False, err
+            x += 1
+
+    elif funct_name == "not":
+        # not(expr, expr, ...)
+        x = 1
+        for arg in args:
+            success, err = validate_expression(config, "any", x, arg)
+            if not success:
+                return False, err
             x += 1
 
     elif funct_name == "sub":
         # sub(regex, expr)
         if len(args) != 2:
             return False, "`sub` must have exactly two arguments"
-        if not isinstance(args[0], dict) or args[0]["type"] != "regex":
+        if not is_type(args[0], ["regex"]):
             return False, "`sub` argument 1 must be a regex pattern"
         flag_str = args[0]["flags"]
         if not re.match(r"[agix]+", flag_str):
@@ -640,7 +669,7 @@ def validate_function(config, function):
         if len(args) != 2:
             # must have exactly two values
             return False, "`list` must have exactly two arguments"
-        if not isinstance(args[0], str):
+        if not is_type(args[0], ["string"]):
             return False, "`list` argument 1 must be a string"
 
         # second value must be a valid function or datatype
@@ -652,38 +681,17 @@ def validate_function(config, function):
         # lookup(table, column, column)
         if len(args) != 3:
             return False, "`lookup` must have exactly three arguments"
-        table = args[0]
-        if not isinstance(table, str) or table not in table_details:
+        if not is_type(args[0], ["string"]):
             return False, "`lookup` argument 1 must be a table name"
+        table = args[0]["value"]
+        if table not in table_details:
+            return False, f"`lookup` argument 1 table name ({table}) must be a table in the inputs"
         headers = table_details[table]["fields"]
         x = 1
         while x < 3:
             arg = args[x]
-            if not isinstance(arg, str) or arg not in headers:
+            if not is_type(arg, ["string"]) or arg["value"] not in headers:
                 return False, f"`lookup` argument {x + 1} must be a column name in '{table}'"
-            x += 1
-
-    elif funct_name == "split":
-        # split(split, int, expr, expr, ...)
-        if len(args) < 4:
-            return False, "`split` must have at least four arguments"
-        if not isinstance(args[0], str):
-            # first value must be a string
-            return False, "`split` argument 1 must be a string"
-        try:
-            funct_count = int(args[1])
-        except ValueError:
-            # second value must be a number (passed as str)
-            return False, "`split` argument 2 must be a whole number"
-        if len(args) - 2 != funct_count:
-            # rem args must be equal to the last value
-            return False, f"`split` must include {funct_count} functions"
-        x = 2
-        while x < len(args):
-            # rem args must be valid functions or datatypes
-            success, err = validate_expression(config, "split", x + 1, args[x])
-            if not success:
-                return False, err
             x += 1
 
     elif funct_name == "under":
@@ -692,7 +700,7 @@ def validate_function(config, function):
             # can have two or three args
             return False, "`under` must have either two or three arguments"
         tree_loc = args[0]
-        if not isinstance(tree_loc, dict) or tree_loc["type"] != "field":
+        if not is_type(tree_loc, ["field"]):
             return False, f"`under` argument 1 must be a table.column pair"
 
         tree_name = f'{tree_loc["table"]}.{tree_loc["column"]}'
@@ -703,13 +711,13 @@ def validate_function(config, function):
         if tree_name not in trees:
             # tree must have already been defined
             return False, f"`under` argument 1 '{tree_name}' must be defined as a tree in 'field'"
-        top_level = args[1]
-        if not isinstance(top_level, str):
+        if not is_type(args[1], ["string"]):
             # second value must be a string
             return False, "`under` argument 2 must be a string"
+        top_level = args[1]["value"]
 
         if len(args) == 3:
-            if args[2]["type"] != "named_arg":
+            if not is_type(args[2], ["named_arg"]):
                 return False, "if provided, `under` argument 3 must be `direct=bool`"
             if args[2]["name"] != "direct":
                 return False, "`under` only accepts named argument `direct`"
@@ -736,21 +744,12 @@ def validate_condition(config, parsed_condition):
     datatypes = config["datatypes"]
     cond_type = parsed_condition["type"]
 
-    if cond_type == "datatype":
-        dt = parsed_condition["name"]
+    if cond_type == "string":
+        dt = parsed_condition["value"]
         if dt not in datatypes.keys():
             return False, f"datatype '{dt}' must be defined in the datatype table"
     elif cond_type == "function":
         return validate_function(config, parsed_condition)
-    elif cond_type == "negation":
-        return validate_condition(config, parsed_condition["expression"])
-    elif cond_type == "disjunction":
-        # Parse each sub-condition and check if they are valid
-        for sub_cond in parsed_condition["disjuncts"]:
-            success, err = validate_condition(config, sub_cond)
-            if not success:
-                # Break on error
-                return False, err
     else:
         raise Exception("Unknown condition type: " + cond_type)
 
@@ -833,7 +832,7 @@ def validate_tree_type(config, fn_row_idx, table_name, parent_column, tree_funct
 
     # first arg is column
     child_column = args[0]
-    if not isinstance(child_column, str):
+    if not is_type(child_column, ["string"]):
         errors.append(
             {"message": "the first argument of the `tree` function must be a column name"}
         )
@@ -861,7 +860,7 @@ def validate_tree_type(config, fn_row_idx, table_name, parent_column, tree_funct
         fn_row_idx,
         table_name,
         parent_column,
-        child_column,
+        child_column["value"],
         row_start=row_start,
         add_tree_name=add_tree_name,
         split_char=split_char,
@@ -911,8 +910,8 @@ def meets_condition(
     """
     condition_type = condition["type"]
     datatypes = config["datatypes"]
-    if condition_type == "datatype":
-        datatype = condition["name"]
+    if condition_type == "string":
+        datatype = condition["value"]
         # Check if condition is met, potentially get a replacement
         value_meets_condition, replace = is_datatype(datatypes, datatype, value)
         if value_meets_condition is False:
@@ -930,38 +929,6 @@ def meets_condition(
             if when_condition:
                 return False, f"because '{when_value}' is '{when_condition}', {err}"
             return False, err
-
-    elif condition_type == "negation":
-        # Negations may be one or more
-        if not meets_condition(config, condition["expression"], "", value, when_value=when_value)[
-            0
-        ]:
-            # As long as one is "NOT" met, this passes
-            return True, None
-        # If we get here, the negation conditions were not met
-        if unparsed_condition == "not blank":
-            if when_condition:
-                return False, f"because '{when_value}' is '{when_condition}', value cannot be blank"
-            return False, "value cannot be blank"
-        if when_condition:
-            return (
-                False,
-                f"because '{when_value}' is '{when_condition}', '{value}' must be "
-                f"{unparsed_condition}",
-            )
-        return False, f"'{value}' must be {unparsed_condition}"
-
-    elif condition_type == "disjunction":
-        for c in condition["disjuncts"]:
-            if meets_condition(config, c, "", value, when_value=when_value)[0]:
-                return True, None
-        if when_condition:
-            return (
-                False,
-                f"because '{when_value}' is '{when_condition}', '{value}' must meet one of: "
-                f"{unparsed_condition}",
-            )
-        return False, f"'{value}' must meet one of: {unparsed_condition}"
 
     else:
         # This should be prevented in validate_condition
@@ -982,18 +949,20 @@ def run_function(config, function, value, lookup_value=None):
     funct_name = function["name"]
     args = function["args"]
 
+    if funct_name == "any":
+        return any_of(config, args, value, lookup_value=lookup_value)
     if funct_name == "CURIE":
         return CURIE(table_details, args, value)
     elif funct_name == "in":
         return in_set(table_details, args, value)
+    elif funct_name == "not":
+        return not_any_of(config, args, value, lookup_value=lookup_value)
     elif funct_name == "sub":
         return substitute(config, args, value, lookup_value=lookup_value)
     elif funct_name == "list":
         return for_each_list(config, args, value, lookup_value=lookup_value)
     elif funct_name == "lookup":
         return lookup(table_details, args, value, lookup_value)
-    elif funct_name == "split":
-        return split(config, args, value, lookup_value=lookup_value)
     elif funct_name == "under":
         trees = config["trees"]
         return under(trees, args, value)
@@ -1004,6 +973,50 @@ def run_function(config, function, value, lookup_value=None):
 
 
 # ---- VALVE FUNCTIONS ----
+
+
+def any_of(config, args, value, lookup_value=None):
+    """Method for the VALVE 'any' function.
+
+    :param config: valve config dictionary
+    :param args: arguments provided to not
+    :param value: value to run not on
+    :param lookup_value: value required for 'lookup' when lookup is in the arguments
+    :return: True if the value passes at least one condition in the arguments
+    """
+    conditions = []
+    for arg in args:
+        if meets_condition(config, arg, "", value, when_value=lookup_value)[0]:
+            # As long as one is met, this passes
+            return True, None
+        if arg["type"] == "string":
+            conditions.append(arg["value"])
+        else:
+            conditions.append(arg["name"])
+    # If we get here, no condition was met
+    return False, f"'{value}' must meet one of: " + ", ".join(conditions)
+
+
+def not_any_of(config, args, value, lookup_value=None):
+    """Method for the VALVE 'not' function.
+
+    :param config: valve config dictionary
+    :param args: arguments provided to not
+    :param value: value to run not on
+    :param lookup_value: value required for 'lookup' when lookup is in the arguments
+    :return: True if value does not pass any condition in the arguments
+    """
+    conditions = []
+    for arg in args:
+        if not meets_condition(config, arg, "", value, when_value=lookup_value)[0]:
+            # As long as one is "NOT" met, this passes
+            return True, None
+        if arg["type"] == "string":
+            conditions.append(arg["value"])
+        else:
+            conditions.append(arg["name"])
+    # If we get here, the negation conditions were not met
+    return False, f"'{value}' must not meet any of: " + ", ".join(conditions)
 
 
 def CURIE(table_details, args, value):
@@ -1018,15 +1031,15 @@ def CURIE(table_details, args, value):
     prefixes = []
     # Get prefixes from args - either strings or table.column pairs
     for arg in args:
-        if isinstance(arg, str):
-            prefixes.append(arg)
+        if arg["type"] == "string":
+            prefixes.append(arg["value"])
             continue
         table_name = arg["table"]
         column_name = arg["column"]
         for row in table_details[table_name]["rows"]:
             prefixes.append(row[column_name])
     if ":" not in value:
-        return False, f"'{value}' is not a CURIE"
+        return False, f"'{value}' must be a CURIE"
     value_prefix = value.split(":")[0]
     if value_prefix not in prefixes:
         return False, f"prefix '{value_prefix}' must be one of: " + ", ".join(prefixes)
@@ -1123,10 +1136,11 @@ def in_set(table_details, args, value):
     :return: True if value passes in, error message on False"""
     allowed = []
     for arg in args:
-        if isinstance(arg, str):
-            if value == arg:
+        if arg["type"] == "string":
+            arg_val = arg["value"]
+            if value == arg_val:
                 return True, None
-            allowed.append(f'"{arg}"')
+            allowed.append(f'"{arg_val}"')
         else:
             table_name = arg["table"]
             column_name = arg["column"]
@@ -1176,9 +1190,9 @@ def substitute(config, args, value, lookup_value=None):
         value = re.sub(pattern, regex["replace"], value, count=count)
 
     # Handle the expression (dataype or function)
-    if subfunc["type"] == "datatype":
+    if subfunc["type"] == "string":
         datatypes = config["datatypes"]
-        datatype = subfunc["name"]
+        datatype = subfunc["value"]
         value_is_datatype = is_datatype(datatypes, datatype, value)[0]
         if not value_is_datatype:
             return False, f"substituted value '{value}' must be of datatype {datatype}"
@@ -1198,16 +1212,16 @@ def for_each_list(config, args, value, lookup_value=None):
     :param value: value to run list on
     :param lookup_value: value required for 'lookup' when 'lookup' is used as the sub-expression
     :return: True if value passes list, error message on False"""
-    split_char = args[0]
+    split_char = args[0]["value"]
     expr = args[1]
-    expr_name = expr["name"]
     datatypes = config["datatypes"]
     errs = []
     for v in value.split(split_char):
-        if expr["type"] == "datatype":
-            success, _ = is_datatype(datatypes, expr_name, v)
+        if expr["type"] == "string":
+            datatype = expr["value"]
+            success, _ = is_datatype(datatypes, datatype, v)
             if not success:
-                errs.append(f"sub-value '{v}' must be of datatype '{expr_name}'")
+                errs.append(f"sub-value '{v}' must be of datatype '{datatype}'")
         else:
             success, err = run_function(config, expr, v, lookup_value=lookup_value)
             if not success:
@@ -1231,9 +1245,9 @@ def lookup(table_details, args, value, lookup_value):
     :return: True if value passes lookup, error message on False"""
     if not lookup_value:
         raise Exception("A lookup_value is required for a lookup function")
-    table_name = args[0]
-    column_name = args[1]
-    column_name_2 = args[2]
+    table_name = args[0]["value"]
+    column_name = args[1]["value"]
+    column_name_2 = args[2]["value"]
     for row in table_details[table_name]["rows"]:
         maybe_value = row[column_name]
         if maybe_value == lookup_value:
@@ -1242,44 +1256,6 @@ def lookup(table_details, args, value, lookup_value):
                 return False, f"'{value}' must be '{check_value}'"
             return True, None
     return False, f"'{lookup_value}' must present in {table_name}.{column_name}"
-
-
-def split(config, args, value, lookup_value=None):
-    """Method for VALVE 'split' function.
-
-    Split the value on the first argument. The number of values after the split must match the
-    number provided by the second argument. Iterate through the split values and perform the
-    corresponding function or datatype match from the remaining arguments.
-
-    :param config: valve config dictionary
-    :param args: arguments provided to split
-    :param value: value to run split on
-    :param lookup_value: value required for 'lookup' when 'lookup' is used as a sub-expression
-    :return: True if value passes split, error message on False"""
-    split_char = args[0]
-    split_count = int(args[1])
-    value_split = value.split(split_char)
-    if len(value_split) != split_count:
-        return False, f"'{args[1]}' must have {split_count} elements when split on '{split_char}'"
-    errs = []
-    datatypes = config["datatypes"]
-    x = 0
-    while x < split_count:
-        v = value_split[x]
-        expr = args[x + 2]
-        if expr["type"] == "datatype":
-            datatype = expr["name"]
-            success, _ = is_datatype(datatypes, datatype, v)
-            if not success:
-                errs.append(f"sub-value '{v}' must be of datatype '{datatype}'")
-        else:
-            success, err = run_function(config, expr, v, lookup_value=lookup_value)
-            if not success:
-                errs.append(err)
-        x += 1
-    if errs:
-        return False, " & ".join(errs)
-    return True, None
 
 
 def under(trees, args, value):
@@ -1299,7 +1275,7 @@ def under(trees, args, value):
         # This has already been validated for CLI users
         raise Exception(f"A tree for {tree_name} is not defined")
     tree = trees[tree_name]
-    ancestor = args[1]
+    ancestor = args[1]["value"]
     direct = False
     if len(args) == 3 and args[2]["value"].lower() == "true":
         direct = True
