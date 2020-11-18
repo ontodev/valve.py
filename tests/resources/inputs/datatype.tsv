@@ -6,3 +6,4 @@ trimmed_line	line	/\w.*\w/	ERROR	a line with no leading or trailing whitespace	r
 label	trimmed_line		ERROR	an ontology term label		
 IRI	trimmed_line	/[^\S]/	ERROR	an Internationalized Resource Identifier	remove whitespace characters	
 prefix	trimmed_line	/\w+/	ERROR	a valid prefix for a CURIE		
+gate	label	/^\w+(+-)*$/	ERROR	a gate name		

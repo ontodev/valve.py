@@ -24,17 +24,27 @@ grammar = """!n_dqstring: xrule_0 xrule_1 xrule_0-> alias_0
 !n_arguments: n_argument xrule_17-> alias_17
 !n_argument: n_field
     |n_label
-    |n_integer
+    |n_int
     |n_function
+    |n_regex
     |n_named_arg
 !n_field: n_label xrule_18 n_label-> alias_18
 !n_datatype: n_label-> alias_19
 !n_named_arg: n_label xrule_19 n_label-> alias_20
+!n_regex: n_regex_sub
+    |n_regex_match
+!n_regex_sub: xrule_20 n_regex_pattern xrule_21 n_regex_pattern xrule_21 n_regex_flag-> alias_21
+!n_regex_match: xrule_20 n_regex_pattern xrule_21 n_regex_flag-> alias_22
+!n_regex_pattern: n_regex_escaped
+    |n_regex_unescaped
+!n_regex_escaped: n_regex_unescaped xrule_22 n_regex_unescaped-> alias_23
+!n_regex_unescaped: xrule_23-> alias_24
+!n_regex_flag: xrule_24-> alias_25
 !n_label: n_word
     |n_dqstring
-!n_int: n_integer-> alias_21
-!n_integer: xrule_20-> alias_22
-!n_word: xrule_21-> alias_23
+!n_int: n_integer-> alias_26
+!n_integer: xrule_25-> alias_27
+!n_word: xrule_26-> alias_28
 !xrule_0: "\\""
 !xrule_1: (n_dstrchar)*
 !xrule_2: "'"
@@ -55,8 +65,13 @@ grammar = """!n_dqstring: xrule_0 xrule_1 xrule_0-> alias_0
 !xrule_17: (xrule_16 n__ws_maybe n_argument)*
 !xrule_18: "."
 !xrule_19: "="
-!xrule_20: (/[0-9]/)+
-!xrule_21: (/[a-zA-Z-_]/)+"""
+!xrule_20: "s/"
+!xrule_21: "/"
+!xrule_22: "\\/"
+!xrule_23: (/[^\/]/)*
+!xrule_24: (/[a-z]/)*
+!xrule_25: (/[0-9]/)+
+!xrule_26: (/[a-zA-Z-_]/)+"""
 
 from js2py.pyjs import *
 
@@ -65,7 +80,7 @@ var = Scope(JS_BUILTINS)
 set_global_object(var)
 
 # Code follows:
-var.registers(["first", "flatten", "id", "_typeof", "objects", "join", "ffirst"])
+var.registers(["join", "id", "_typeof", "ffirst", "flatten", "objects", "first"])
 
 
 @Js
@@ -157,7 +172,7 @@ def PyJs_flatten_4_(list, this, arguments, var=var):
     @Js
     def PyJs_anonymous_5_(a, b, this, arguments, var=var):
         var = Scope({"a": a, "b": b, "this": this, "arguments": arguments}, var)
-        var.registers(["a", "b"])
+        var.registers(["b", "a"])
         return var.get("a").callprop(
             "concat",
             (
@@ -432,9 +447,57 @@ def PyJs_alias_20_25_(d, this, arguments, var=var):
 
 PyJs_alias_20_25_._set_name("alias_20")
 var.put("alias_20", PyJs_alias_20_25_)
-var.put("alias_21", var.get("parseInt"))
-var.put("alias_22", var.get("join"))
-var.put("alias_23", var.get("join"))
+
+
+@Js
+def PyJs_alias_21_26_(d, this, arguments, var=var):
+    var = Scope({"d": d, "this": this, "arguments": arguments, "alias_21": PyJs_alias_21_26_}, var)
+    var.registers(["d"])
+    return Js(
+        {
+            "type": Js("regex"),
+            "pattern": var.get("d").get("1").get("0"),
+            "replace": var.get("d").get("3").get("0").callprop("replace", Js(""), Js("")),
+            "flags": var.get("d").get("5"),
+        }
+    )
+
+
+PyJs_alias_21_26_._set_name("alias_21")
+var.put("alias_21", PyJs_alias_21_26_)
+
+
+@Js
+def PyJs_alias_22_27_(d, this, arguments, var=var):
+    var = Scope({"d": d, "this": this, "arguments": arguments, "alias_22": PyJs_alias_22_27_}, var)
+    var.registers(["d"])
+    return Js(
+        {
+            "type": Js("regex"),
+            "pattern": var.get("d").get("1").get("0"),
+            "flags": var.get("d").get("3"),
+        }
+    )
+
+
+PyJs_alias_22_27_._set_name("alias_22")
+var.put("alias_22", PyJs_alias_22_27_)
+
+
+@Js
+def PyJs_alias_23_28_(d, this, arguments, var=var):
+    var = Scope({"d": d, "this": this, "arguments": arguments, "alias_23": PyJs_alias_23_28_}, var)
+    var.registers(["d"])
+    return var.get("flatten")(var.get("d")).callprop("join", Js(""))
+
+
+PyJs_alias_23_28_._set_name("alias_23")
+var.put("alias_23", PyJs_alias_23_28_)
+var.put("alias_24", var.get("join"))
+var.put("alias_25", var.get("join"))
+var.put("alias_26", var.get("parseInt"))
+var.put("alias_27", var.get("join"))
+var.put("alias_28", var.get("join"))
 pass
 
 
@@ -463,6 +526,11 @@ class TransformNearley(Transformer):
     alias_21 = var.get("alias_21").to_python()
     alias_22 = var.get("alias_22").to_python()
     alias_23 = var.get("alias_23").to_python()
+    alias_24 = var.get("alias_24").to_python()
+    alias_25 = var.get("alias_25").to_python()
+    alias_26 = var.get("alias_26").to_python()
+    alias_27 = var.get("alias_27").to_python()
+    alias_28 = var.get("alias_28").to_python()
     __default__ = lambda self, n, c, m: c if c else None
 
 
