@@ -22,15 +22,16 @@ grammar = """!n_dqstring: xrule_0 xrule_1 xrule_0-> alias_0
 !n_function: n_function_name xrule_14 n_arguments xrule_15-> alias_16
 !n_function_name: n_word
 !n_arguments: n_argument xrule_17-> alias_17
-!n_argument: n_field
-    |n_label
-    |n_int
+!n_argument: n_datatype
+    |n_dqstring
+    |n_field
     |n_function
-    |n_regex
+    |n_int
     |n_named_arg
+    |n_regex
 !n_field: n_label xrule_18 n_label-> alias_18
-!n_datatype: n_label-> alias_19
-!n_named_arg: n_label xrule_19 n_label-> alias_20
+!n_datatype: /[A-Za-z]/ n_alphanum-> alias_19
+!n_named_arg: n_word xrule_19 n_label-> alias_20
 !n_regex: n_regex_sub
     |n_regex_match
 !n_regex_sub: xrule_20 n_regex_pattern xrule_21 n_regex_pattern xrule_21 n_regex_flag-> alias_21
@@ -43,8 +44,9 @@ grammar = """!n_dqstring: xrule_0 xrule_1 xrule_0-> alias_0
 !n_label: n_word
     |n_dqstring
 !n_int: n_integer-> alias_26
-!n_integer: xrule_25-> alias_27
-!n_word: xrule_26-> alias_28
+!n_alphanum: xrule_25-> alias_27
+!n_integer: xrule_26-> alias_28
+!n_word: xrule_27-> alias_29
 !xrule_0: "\\""
 !xrule_1: (n_dstrchar)*
 !xrule_2: "'"
@@ -70,8 +72,9 @@ grammar = """!n_dqstring: xrule_0 xrule_1 xrule_0-> alias_0
 !xrule_22: "\\/"
 !xrule_23: (/[^\/]/)*
 !xrule_24: (/[a-z]/)*
-!xrule_25: (/[0-9]/)+
-!xrule_26: (/[a-zA-Z-_]/)+"""
+!xrule_25: (/[a-zA-Z0-9-_]/)*
+!xrule_26: (/[0-9]/)+
+!xrule_27: (/[a-zA-Z-_]/)+"""
 
 from js2py.pyjs import *
 
@@ -80,7 +83,7 @@ var = Scope(JS_BUILTINS)
 set_global_object(var)
 
 # Code follows:
-var.registers(["join", "id", "_typeof", "ffirst", "flatten", "objects", "first"])
+var.registers(["flatten", "first", "_typeof", "join", "objects", "id", "ffirst"])
 
 
 @Js
@@ -172,7 +175,7 @@ def PyJs_flatten_4_(list, this, arguments, var=var):
     @Js
     def PyJs_anonymous_5_(a, b, this, arguments, var=var):
         var = Scope({"a": a, "b": b, "this": this, "arguments": arguments}, var)
-        var.registers(["b", "a"])
+        var.registers(["a", "b"])
         return var.get("a").callprop(
             "concat",
             (
@@ -425,7 +428,7 @@ var.put("alias_18", PyJs_alias_18_23_)
 def PyJs_alias_19_24_(d, this, arguments, var=var):
     var = Scope({"d": d, "this": this, "arguments": arguments, "alias_19": PyJs_alias_19_24_}, var)
     var.registers(["d"])
-    return Js({"type": Js("datatype"), "name": var.get("d").get("0").get("0")})
+    return Js({"type": Js("datatype"), "name": (var.get("d").get("0") + var.get("d").get("1"))})
 
 
 PyJs_alias_19_24_._set_name("alias_19")
@@ -498,6 +501,7 @@ var.put("alias_25", var.get("join"))
 var.put("alias_26", var.get("parseInt"))
 var.put("alias_27", var.get("join"))
 var.put("alias_28", var.get("join"))
+var.put("alias_29", var.get("join"))
 pass
 
 
@@ -531,6 +535,7 @@ class TransformNearley(Transformer):
     alias_26 = var.get("alias_26").to_python()
     alias_27 = var.get("alias_27").to_python()
     alias_28 = var.get("alias_28").to_python()
+    alias_29 = var.get("alias_29").to_python()
     __default__ = lambda self, n, c, m: c if c else None
 
 
