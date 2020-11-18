@@ -151,17 +151,6 @@ def read_datatype_table(datatype_table):
         idx = 2
         for row in reader:
             dt = row["datatype"]
-            if not re.match(r"^(?![0-9])[A-Za-z0-9-_]+$", dt):
-                errors.append(
-                    {
-                        "table": table_name,
-                        "cell": idx_to_a1(idx, headers.index("datatype") + 1),
-                        "rule": "invalid datatype name",
-                        "message": "the datatype must use only alphanumeric characters, dashes, "
-                                   "and underscores and must not start with an integer",
-                        "kill": True,
-                    }
-                )
             del row["datatype"]
 
             parents_str = row["parents"].strip()
