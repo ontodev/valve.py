@@ -80,7 +80,7 @@ var = Scope(JS_BUILTINS)
 set_global_object(var)
 
 # Code follows:
-var.registers(["_typeof", "join", "id", "objects", "ffirst", "first", "flatten"])
+var.registers(["join", "id", "_typeof", "ffirst", "flatten", "objects", "first"])
 
 
 @Js
@@ -172,7 +172,7 @@ def PyJs_flatten_4_(list, this, arguments, var=var):
     @Js
     def PyJs_anonymous_5_(a, b, this, arguments, var=var):
         var = Scope({"a": a, "b": b, "this": this, "arguments": arguments}, var)
-        var.registers(["a", "b"])
+        var.registers(["b", "a"])
         return var.get("a").callprop(
             "concat",
             (
@@ -458,7 +458,7 @@ def PyJs_alias_21_26_(d, this, arguments, var=var):
             "type": Js("regex"),
             "pattern": var.get("d").get("1").get("0"),
             "replace": var.get("d").get("3").get("0").callprop("replace", Js(""), Js("")),
-            "flags": var.get("d").get("5").get("0"),
+            "flags": var.get("d").get("5"),
         }
     )
 
@@ -475,7 +475,7 @@ def PyJs_alias_22_27_(d, this, arguments, var=var):
         {
             "type": Js("regex"),
             "pattern": var.get("d").get("1").get("0"),
-            "flags": var.get("d").get("3").get("0"),
+            "flags": var.get("d").get("3"),
         }
     )
 

@@ -600,6 +600,9 @@ def validate_function(config, function):
             return False, "`sub` must have exactly two arguments"
         if not isinstance(args[0], dict) or args[0]["type"] != "regex":
             return False, "`sub` argument 1 must be a regex pattern"
+        flag_str = args[0]["flags"]
+        if not re.match(r"[agix]+", flag_str):
+            return False, "`sub` regex flag(s) must be one or more of: a, g, i, or x"
 
         # second value must be a valid function
         if isinstance(args[1], str):
@@ -1140,7 +1143,30 @@ def substitute(config, args, value, lookup_value=None):
     :return: True if value passes list, error message on False"""
     regex = args[0]
     subfunc = args[1]
-    value = re.sub(regex["pattern"], regex["replace"], value)
+    pattern = regex["pattern"]
+
+    # Handle any regex flags
+    flags = regex["flags"]
+    count = 1
+    ignore_case = False
+    if flags:
+        if "g" in flags:
+            # Set count to zero to replace all matches
+            count = 0
+            flags = flags.replace("g", "")
+        if "i" in flags:
+            # Use python flags instead
+            # (?i) does not work if there are no alpha characters in pattern
+            ignore_case = True
+            flags = flags.replace("i", "")
+        if flags:
+            # a and x flags can be inserted into the pattern
+            pattern = f"?({flags}){pattern}"
+
+    if ignore_case:
+        value = re.sub(pattern, regex["replace"], value, count=count, flags=re.IGNORECASE)
+    else:
+        value = re.sub(pattern, regex["replace"], value, count=count)
     return run_function(config, subfunc, value, lookup_value=lookup_value)
 
 
