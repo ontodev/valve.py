@@ -38,7 +38,7 @@ rule_headers = [
 # Other allowed values: level, description, note
 
 # Supported function names
-funct_names = ["CURIE", "distinct", "in", "list", "lookup", "split", "tree", "under"]
+funct_names = ["CURIE", "distinct", "in", "sub", "list", "lookup", "split", "tree", "under"]
 
 
 # ---- MISC HELPERS ----
@@ -121,6 +121,7 @@ def get_table_details(tables, row_start=2):
             reader = csv.DictReader(f, delimiter=sep)
             table_name = os.path.splitext(os.path.basename(table))[0]
             table_details[table_name] = {
+                "path": table,
                 "fields": reader.fieldnames,
                 "rows": list(reader)[row_start - 2 :],
             }
@@ -210,9 +211,7 @@ def read_field_table(config, field_table, row_start=2):
         headers = reader.fieldnames
         missing = list(set(field_headers) - set(headers))
         if missing:
-            raise Exception(
-                "Missing required columns for 'rule' table: " + ", ".join(missing)
-            )
+            raise Exception("Missing required columns for 'rule' table: " + ", ".join(missing))
 
         # Validate field table contents
         idx = 1
@@ -242,13 +241,12 @@ def read_field_table(config, field_table, row_start=2):
                 # Parse the field condition
                 parsed_type = parse(row["condition"])
                 success, err = validate_condition(config, parsed_type)
-                if not parsed_type:
-                    # Type could not be parsed - grammar issue
+                if not success:
                     errors.append(
                         {
                             "table": table_name,
                             "cell": idx_to_a1(idx, headers.index("condition") + 1),
-                            "rule": "invalid type",
+                            "rule": "invalid condition",
                             "message": err,
                             "kill": True,
                         }
@@ -549,12 +547,41 @@ def build_tree(
     return tree, errors
 
 
+def validate_expression(config, funct_name, pos, arg):
+    """Validate that an argument is a function or datatype.
+
+    :param config: valve config dictionary
+    :param funct_name: name of function currently being validated
+    :param pos: position of this argument
+    :param arg: argument to validate
+    :return: True on success False on error, error message on error
+    """
+    if not isinstance(arg, dict):
+        return False, f"`{funct_name}` argument {pos} ({arg}) must be a valid datatype or function"
+    if arg["type"] == "datatype":
+        datatypes = config["datatypes"]
+        dt_name = arg["name"]
+        if dt_name not in datatypes:
+            return (
+                False,
+                f"`{funct_name}` argument {pos} datatype ({dt_name}) must be a defined datatype",
+            )
+    else:
+        success, err = validate_function(config, arg)
+        if not success:
+            return (
+                False,
+                f"`{funct_name}` argument {pos} must be a valid datatype or function: " + err,
+            )
+    return True, None
+
+
 def validate_function(config, function):
     """Validate a function.
 
     :param config: valve config dictionary
     :param function: parsed function as dictionary
-    :return: parsed function or None on error, error table entry on error
+    :return: True on success False on error, error message on error
     """
     errors = []
     funct_name = function["name"]
@@ -562,7 +589,6 @@ def validate_function(config, function):
         return False, f"function name ({funct_name}) must be one of: " + ",".join(funct_names)
 
     table_details = config["table_details"]
-    datatypes = config["datatypes"]
 
     # Special validation for each function
     args = function["args"]
@@ -594,6 +620,21 @@ def validate_function(config, function):
                     return False, err
             x += 1
 
+    elif funct_name == "sub":
+        # sub(regex, expr)
+        if len(args) != 2:
+            return False, "`sub` must have exactly two arguments"
+        if not isinstance(args[0], dict) or args[0]["type"] != "regex":
+            return False, "`sub` argument 1 must be a regex pattern"
+        flag_str = args[0]["flags"]
+        if not re.match(r"[agix]+", flag_str):
+            return False, "`sub` regex flag(s) must be one or more of: a, g, i, or x"
+
+        # second value must be a valid function or datatype
+        success, err = validate_expression(config, "sub", 2, args[1])
+        if not success:
+            return False, err
+
     elif funct_name == "list":
         # list(split, expr)
         if len(args) != 2:
@@ -603,13 +644,9 @@ def validate_function(config, function):
             return False, "`list` argument 1 must be a string"
 
         # second value must be a valid function or datatype
-        if isinstance(args[1], str):
-            if args[1] not in datatypes:
-                return False, f"`list` argument 2 ({args[1]}) must be a valid datatype or function"
-        else:
-            success, err = validate_function(config, args[1])
-            if not success:
-                return False, "`list` argument 2 must be a valid datatype or function: " + err
+        success, err = validate_expression(config, "list", 2, args[1])
+        if not success:
+            return False, err
 
     elif funct_name == "lookup":
         # lookup(table, column, column)
@@ -634,30 +671,19 @@ def validate_function(config, function):
             # first value must be a string
             return False, "`split` argument 1 must be a string"
         try:
-            funct_count = int(args[0])
+            funct_count = int(args[1])
         except ValueError:
             # second value must be a number (passed as str)
             return False, "`split` argument 2 must be a whole number"
-        if len(args) != funct_count:
+        if len(args) - 2 != funct_count:
             # rem args must be equal to the last value
             return False, f"`split` must include {funct_count} functions"
         x = 2
         while x < len(args):
-            arg = args[x]
             # rem args must be valid functions or datatypes
-            if isinstance(arg, str):
-                if arg not in datatypes:
-                    return (
-                        False,
-                        f"`split` argument {x + 1} ({arg}) must be a valid datatype or function",
-                    )
-            else:
-                success, err = validate_function(config, arg)
-                if not success:
-                    return (
-                        False,
-                        f"`split` argument {x + 1} must be a valid datatype or function: " + err,
-                    )
+            success, err = validate_expression(config, "split", x + 1, args[x])
+            if not success:
+                return False, err
             x += 1
 
     elif funct_name == "under":
@@ -960,6 +986,8 @@ def run_function(config, function, value, lookup_value=None):
         return CURIE(table_details, args, value)
     elif funct_name == "in":
         return in_set(table_details, args, value)
+    elif funct_name == "sub":
+        return substitute(config, args, value, lookup_value=lookup_value)
     elif funct_name == "list":
         return for_each_list(config, args, value, lookup_value=lookup_value)
     elif funct_name == "lookup":
@@ -1110,6 +1138,55 @@ def in_set(table_details, args, value):
     return False, f"'{value}' must be in: " + ", ".join(allowed)
 
 
+def substitute(config, args, value, lookup_value=None):
+    """Method for the VALVE 'sub' function.
+
+    Substitute match with replacement, then evaluate the expression.
+
+    :param config: valve config dictionary
+    :param args: arguments provided to list
+    :param value: value to run list on
+    :param lookup_value: value required for 'lookup' when 'lookup' is used as the sub-function
+    :return: True if value passes list, error message on False"""
+    regex = args[0]
+    subfunc = args[1]
+    pattern = regex["pattern"]
+
+    # Handle any regex flags
+    flags = regex["flags"]
+    count = 1
+    ignore_case = False
+    if flags:
+        if "g" in flags:
+            # Set count to zero to replace all matches
+            count = 0
+            flags = flags.replace("g", "")
+        if "i" in flags:
+            # Use python flags instead
+            # (?i) does not work if there are no alpha characters in pattern
+            ignore_case = True
+            flags = flags.replace("i", "")
+        if flags:
+            # a and x flags can be inserted into the pattern
+            pattern = f"?({flags}){pattern}"
+
+    if ignore_case:
+        value = re.sub(pattern, regex["replace"], value, count=count, flags=re.IGNORECASE)
+    else:
+        value = re.sub(pattern, regex["replace"], value, count=count)
+
+    # Handle the expression (dataype or function)
+    if subfunc["type"] == "datatype":
+        datatypes = config["datatypes"]
+        datatype = subfunc["name"]
+        value_is_datatype = is_datatype(datatypes, datatype, value)[0]
+        if not value_is_datatype:
+            return False, f"substituted value '{value}' must be of datatype {datatype}"
+        return True, None
+    else:
+        return run_function(config, subfunc, value, lookup_value=lookup_value)
+
+
 def for_each_list(config, args, value, lookup_value=None):
     """Method for the VALVE 'list' function.
 
@@ -1123,15 +1200,16 @@ def for_each_list(config, args, value, lookup_value=None):
     :return: True if value passes list, error message on False"""
     split_char = args[0]
     expr = args[1]
-    errs = []
+    expr_name = expr["name"]
     datatypes = config["datatypes"]
+    errs = []
     for v in value.split(split_char):
-        if isinstance(expr, str):
-            success, _ = is_datatype(datatypes, expr, v)
+        if expr["type"] == "datatype":
+            success, _ = is_datatype(datatypes, expr_name, v)
             if not success:
-                errs.append(f"sub-value '{v}' must be of datatype '{expr}'")
+                errs.append(f"sub-value '{v}' must be of datatype '{expr_name}'")
         else:
-            success, err = run_function(config, expr, value, lookup_value=lookup_value)
+            success, err = run_function(config, expr, v, lookup_value=lookup_value)
             if not success:
                 errs.append(err)
     if errs:
@@ -1189,12 +1267,13 @@ def split(config, args, value, lookup_value=None):
     while x < split_count:
         v = value_split[x]
         expr = args[x + 2]
-        if isinstance(expr, str):
-            success, _ = is_datatype(datatypes, expr, v)
+        if expr["type"] == "datatype":
+            datatype = expr["name"]
+            success, _ = is_datatype(datatypes, datatype, v)
             if not success:
-                errs.append(f"sub-value '{v}' must be of datatype '{expr}'")
+                errs.append(f"sub-value '{v}' must be of datatype '{datatype}'")
         else:
-            success, err = run_function(config, expr, value, lookup_value=lookup_value)
+            success, err = run_function(config, expr, v, lookup_value=lookup_value)
             if not success:
                 errs.append(err)
         x += 1
@@ -1421,7 +1500,7 @@ def get_config_from_tables(paths, row_start=2):
                     raise RuntimeError(f"More than one 'field' table found: {f}, {field_table}")
                 field_table = f
             elif fname == "rule":
-                if field_table:
+                if rule_table:
                     raise RuntimeError(f"More than one 'rule' table found: {f}, {rule_table}")
                 rule_table = f
             else:
@@ -1509,8 +1588,9 @@ def validate(o, row_start=2, distinct_messages=None):
 
         if add_errors and distinct_messages:
             # Update errors to only be distinct messages in a new table
+            table_path = table_details[table]["path"]
             update_errors = collect_distinct_messages(
-                table_details, distinct_messages, table, add_errors
+                table_details, distinct_messages, table_path, add_errors
             )
             errors.extend(update_errors)
         elif not distinct_messages:
