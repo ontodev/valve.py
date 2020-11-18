@@ -83,7 +83,7 @@ var = Scope(JS_BUILTINS)
 set_global_object(var)
 
 # Code follows:
-var.registers(["flatten", "first", "_typeof", "join", "objects", "id", "ffirst"])
+var.registers(["_typeof", "flatten", "first", "objects", "join", "id", "ffirst"])
 
 
 @Js
@@ -442,7 +442,7 @@ def PyJs_alias_20_25_(d, this, arguments, var=var):
     return Js(
         {
             "type": Js("named_arg"),
-            "name": var.get("d").get("0").get("0"),
+            "name": var.get("d").get("0"),
             "value": var.get("d").get("2").get("0"),
         }
     )

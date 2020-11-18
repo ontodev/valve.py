@@ -497,7 +497,7 @@ def build_tree(
     child_column,
     row_start=2,
     add_tree_name=None,
-    split_char="|",
+    split_char=None,
 ):
     """Build a hierarchy for the `tree` function while validating the values.
 
@@ -864,9 +864,14 @@ def validate_tree_type(config, fn_row_idx, table_name, parent_column, tree_funct
         x = 1
         while x < len(args):
             arg = args[x]
-            if "name" in arg and arg["name"] == "split":
-                split_char = arg["value"]
-            elif "table" in arg:
+            arg_type = arg["type"]
+            if arg_type == "named_arg":
+                if arg["name"] == "split":
+                    split_char = arg["value"]
+                else:
+                    errors.append({"message": f"`tree` named argument must be split=CHAR"})
+                    return None, errors
+            elif arg_type == "field":
                 add_tree_name = f'{arg["table"]}.{arg["column"]}'
             else:
                 errors.append(
