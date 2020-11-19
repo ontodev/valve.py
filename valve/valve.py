@@ -128,6 +128,13 @@ def parsed_to_str(condition):
         if " " in val:
             val = f'"{val}"'
         return f"{name}={val}"
+    if cond_type == "regex":
+        pattern = condition["pattern"]
+        flags = condition["flags"]
+        if "replace" in condition:
+            replace = condition["replace"]
+            return f"s/{pattern}/{replace}/{flags}"
+        return f"/{pattern}/{flags}"
     if cond_type == "function":
         args = []
         for arg in condition["args"]:
