@@ -20,7 +20,7 @@ build/nearley: | build
 	cd build && git clone https://github.com/Hardmath123/nearley
 
 build/valve_grammar.py: build/valve_grammar.ne | build/nearley
-	python3 -m lark.tools.nearley $< expression $| --es6 > $@
+	python3 -m lark.tools.nearley $< start $| --es6 > $@
 
 valve/parse.py: build/valve_grammar.py
 	tail -n +2 $< | \
