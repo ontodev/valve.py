@@ -102,6 +102,42 @@ def idx_to_a1(row, col):
     return f"{column_label}{row}"
 
 
+def parsed_to_str(condition):
+    """Convert a parsed condition back to its original string.
+
+    :param condition: parsed condition to convert
+    :return: string version of condition
+    """
+    cond_type = condition["type"]
+    if cond_type == "string":
+        val = condition["value"]
+        if " " in val:
+            return f'"{val}"'
+        return val
+    if cond_type == "field":
+        table = condition["table"]
+        col = condition["column"]
+        if " " in table:
+            table = f'"{table}"'
+        if " " in col:
+            col = f'"{col}"'
+        return f"{table}.{col}"
+    if cond_type == "named_arg":
+        name = condition["name"]
+        val = condition["value"]
+        if " " in val:
+            val = f'"{val}"'
+        return f"{name}={val}"
+    if cond_type == "function":
+        args = []
+        for arg in condition["args"]:
+            args.append(parsed_to_str(arg))
+        name = condition["name"]
+        args = ", ".join(args)
+        return f"{name}({args})"
+    raise Exception("Unknown condition type: " + cond_type)
+
+
 # ---- INPUT TABLES ----
 
 
@@ -310,7 +346,6 @@ def read_field_table(config, field_table, row_start=2):
 
                 field_types[column] = {
                     "parsed": parsed_type,
-                    "unparsed": row["condition"],
                     "field ID": idx,
                 }
                 table_fields[table] = field_types
@@ -452,11 +487,9 @@ def read_rule_table(config, rule_table):
             rules.append(
                 {
                     "when_condition": parsed_when_condition,
-                    "unparsed_when": when_condition,
                     "table": table,
                     "column": then_column,
                     "then_condition": parsed_then_condition,
-                    "unparsed_then": then_condition,
                     "level": level,
                     "message": row.get("description", None),
                     "rule ID": idx,
@@ -895,17 +928,14 @@ def is_datatype(datatypes, datatype, value):
     return True, None
 
 
-def meets_condition(
-    config, condition, unparsed_condition, value, when_condition=None, when_value=None
-):
+def meets_condition(config, condition, value, when_condition=None, when_value=None):
     """Determine if the value meets the condition.
 
     :param config: valve config dictionary
     :param condition: parsed condition to check (as dict)
-    :param unparsed_condition: unparsed text of condition for error messages
     :param value: value to check
     :param when_value: "when value" to prompt checking rule
-    :param when_condition: "when condition" to prompt checking rule
+    :param when_condition: unparsed "when condition" to prompt checking rule
     :return: True if value meets condition, error message on False
     """
     condition_type = condition["type"]
@@ -915,6 +945,7 @@ def meets_condition(
         # Check if condition is met, potentially get a replacement
         value_meets_condition, replace = is_datatype(datatypes, datatype, value)
         if value_meets_condition is False:
+            unparsed_condition = parsed_to_str(condition)
             if when_condition:
                 return (
                     False,
@@ -986,13 +1017,10 @@ def any_of(config, args, value, lookup_value=None):
     """
     conditions = []
     for arg in args:
-        if meets_condition(config, arg, "", value, when_value=lookup_value)[0]:
+        if meets_condition(config, arg, value, when_value=lookup_value)[0]:
             # As long as one is met, this passes
             return True, None
-        if arg["type"] == "string":
-            conditions.append(arg["value"])
-        else:
-            conditions.append(arg["name"])
+        conditions.append(parsed_to_str(arg))
     # If we get here, no condition was met
     return False, f"'{value}' must meet one of: " + ", ".join(conditions)
 
@@ -1140,14 +1168,12 @@ def not_any_of(config, args, value, lookup_value=None):
     :return: True if value does not pass any condition in the arguments
     """
     for arg in args:
-        if meets_condition(config, arg, "", value, when_value=lookup_value)[0]:
+        if meets_condition(config, arg, value, when_value=lookup_value)[0]:
             # If any condition *is* met, this fails
-            if arg["type"] == "string":
-                cond = arg["value"]
-                return False, f"'{value}' must not be '{cond}'"
-            else:
-                cond = arg["name"]
-                return False, f"'{value}' must not pass function '{cond}'"
+            unparsed = parsed_to_str(arg)
+            if unparsed == "blank":
+                return False, f"value must not be blank"
+            return False, f"'{value}' must not be '{unparsed}'"
     return True, None
 
 
@@ -1365,10 +1391,9 @@ def validate_table(config, table, fields, rules, row_start=2):
                 # Get the expected field type
                 # This will be validated based on the given datatypes
                 parsed_type = fields[field]["parsed"]
-                unparsed = fields[field]["unparsed"]
 
                 # all values in this field must match the type
-                mc, err_message = meets_condition(config, parsed_type, unparsed, value)
+                mc, err_message = meets_condition(config, parsed_type, value)
                 if not mc:
                     field_id = fields[field]["field ID"]
                     errors.append(
@@ -1386,7 +1411,7 @@ def validate_table(config, table, fields, rules, row_start=2):
                 for rule in rules[field]:
                     # Run meets_condition without logging
                     # as the then-cond check is only run if the value matches the type
-                    if meets_condition(config, rule["when_condition"], "", value)[0]:
+                    if meets_condition(config, rule["when_condition"], value)[0]:
                         # The "when" value meets the condition - validate the "then" value
                         table = rule["table"]
                         column = rule["column"]
@@ -1397,9 +1422,8 @@ def validate_table(config, table, fields, rules, row_start=2):
                         success, err_message = meets_condition(
                             config,
                             rule["then_condition"],
-                            rule["unparsed_then"],
                             check_value,
-                            when_condition=rule["unparsed_when"],
+                            when_condition=parsed_to_str(rule["when_condition"]),
                             when_value=value,
                         )
                         if not success:
