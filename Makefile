@@ -20,7 +20,7 @@ build/nearley: | build
 	cd build && git clone https://github.com/Hardmath123/nearley
 
 build/valve_grammar.py: build/valve_grammar.ne | build/nearley
-	python3 -m lark.tools.nearley $< expression $| --es6 > $@
+	python3 -m lark.tools.nearley $< start $| --es6 > $@
 
 valve/parse.py: build/valve_grammar.py
 	tail -n +2 $< | \
@@ -32,5 +32,5 @@ valve/parse.py: build/valve_grammar.py
 	perl -pe 's/"\\\\"$$/"\\\\\\\\"/g' | \
 	perl -pe 's/(\/\[.*\\n.*]\/)/\1x/g'| \
 	perl -pe 's/\[\^\/\]/[^\\\/]/g' | \
-	sed -e "s/parse(text))/parse(text))[0].to_dict()/g" > $@
+	sed -e "s/parse(text))/parse(text)).to_dict()/g" > $@
 	black --line-length 100 $@
