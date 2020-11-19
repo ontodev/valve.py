@@ -1139,17 +1139,16 @@ def not_any_of(config, args, value, lookup_value=None):
     :param lookup_value: value required for 'lookup' when lookup is in the arguments
     :return: True if value does not pass any condition in the arguments
     """
-    conditions = []
     for arg in args:
-        if not meets_condition(config, arg, "", value, when_value=lookup_value)[0]:
-            # As long as one is "NOT" met, this passes
-            return True, None
-        if arg["type"] == "string":
-            conditions.append(arg["value"])
-        else:
-            conditions.append(arg["name"])
-    # If we get here, the negation conditions were not met
-    return False, f"'{value}' must not meet any of: " + ", ".join(conditions)
+        if meets_condition(config, arg, "", value, when_value=lookup_value)[0]:
+            # If any condition *is* met, this fails
+            if arg["type"] == "string":
+                cond = arg["value"]
+                return False, f"'{value}' must not be '{cond}'"
+            else:
+                cond = arg["name"]
+                return False, f"'{value}' must not pass function '{cond}'"
+    return True, None
 
 
 def substitute(config, args, value, lookup_value=None):
