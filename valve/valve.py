@@ -1,4 +1,5 @@
 import csv
+import inspect
 import itertools
 import logging
 import os
@@ -36,9 +37,6 @@ rule_headers = [
     "then condition",
 ]
 # Other allowed values: level, description, note
-
-# Supported function names
-funct_names = ["any", "CURIE", "distinct", "in", "not", "sub", "list", "lookup", "tree", "under"]
 
 
 # ---- MISC HELPERS ----
@@ -639,13 +637,23 @@ def validate_function(config, function):
     :return: True on success False on error, error message on error
     """
     errors = []
+    functions = config["functions"]
     funct_name = function["name"]
-    if funct_name not in funct_names:
-        return False, f"function name ({funct_name}) must be one of: " + ",".join(funct_names)
+    # Add tree & distinct to functions (resolved at top-level)
+    allowed_funct_names = list(functions.keys()) + ["tree", "distinct"]
+    if funct_name not in allowed_funct_names:
+        return (
+            False,
+            f"function name ({funct_name}) must be one of: " + ",".join(allowed_funct_names),
+        )
+
+    if funct_name not in builtin_functions.keys():
+        # No validation for args to custom functions
+        return True, None
 
     table_details = config["table_details"]
 
-    # Special validation for each function
+    # Special validation for each builtin function
     args = function["args"]
     if funct_name == "any":
         # any(expr, expr, ...)
@@ -983,31 +991,21 @@ def run_function(config, function, value, lookup_value=None):
     :param lookup_value: required for lookup function
     :return: True if value passes function, error message on False
     """
-    table_details = config["table_details"]
+    functions = config["functions"]
     funct_name = function["name"]
     args = function["args"]
 
-    if funct_name == "any":
-        return any_of(config, args, value, lookup_value=lookup_value)
-    if funct_name == "CURIE":
-        return CURIE(table_details, args, value)
-    elif funct_name == "in":
-        return in_set(table_details, args, value)
-    elif funct_name == "not":
-        return not_any_of(config, args, value, lookup_value=lookup_value)
-    elif funct_name == "sub":
-        return substitute(config, args, value, lookup_value=lookup_value)
-    elif funct_name == "list":
-        return for_each_list(config, args, value, lookup_value=lookup_value)
-    elif funct_name == "lookup":
-        return lookup(table_details, args, value, lookup_value)
-    elif funct_name == "under":
-        trees = config["trees"]
-        return under(trees, args, value)
-    else:
-        # This should never be reached in normal operation
-        # validate_condition already checks that this is OK
+    if funct_name not in functions:
         raise Exception("Unknown function: " + funct_name)
+    fn = functions[funct_name]
+    if not fn:
+        raise Exception(f"Function '{funct_name}' must be defined")
+
+    sig = inspect.signature(fn)
+    if "lookup_value" in sig.parameters.keys():
+        return fn(config, args, value, lookup_value=lookup_value)
+    else:
+        return fn(config, args, value)
 
 
 # ---- VALVE FUNCTIONS ----
@@ -1018,7 +1016,7 @@ def any_of(config, args, value, lookup_value=None):
 
     :param config: valve config dictionary
     :param args: arguments provided to not
-    :param value: value to run not on
+    :param value: value to run any on
     :param lookup_value: value required for 'lookup' when lookup is in the arguments
     :return: True if the value passes at least one condition in the arguments
     """
@@ -1032,15 +1030,16 @@ def any_of(config, args, value, lookup_value=None):
     return False, f"'{value}' must meet one of: " + ", ".join(conditions)
 
 
-def CURIE(table_details, args, value):
+def CURIE(config, args, value):
     """Method for the VALVE 'CURIE' function. The value must be a CURIE and the prefix of the value
     must be in the table.column pair or string defined by the arg (1+ args)
 
-    :param table_details: dictionary of table name -> details
+    :param config: valve config dictionary
     :param args: arguments provided to CURIE
     :param value: value to run CURIE on
     :return: True if value passes CURIE, error message on False
     """
+    table_details = config["table_details"]
     prefixes = []
     # Get prefixes from args - either strings or table.column pairs
     for arg in args:
@@ -1060,7 +1059,7 @@ def CURIE(table_details, args, value):
 
 
 def distinct(table_details, args, table, column, row_start=2):
-    """Method for the VALVE 'distinct' function.
+    """Method for the VALVE 'distinct' function. This is run over all rows, rather than one value.
 
     :param table_details: dictionary of table name -> details
     :param args: arguments provided to distinct
@@ -1140,13 +1139,14 @@ def distinct(table_details, args, table, column, row_start=2):
     return True, None
 
 
-def in_set(table_details, args, value):
+def in_set(config, args, value):
     """Method for the VALVE 'in' function. The value must be one of the arguments.
 
-    :param table_details: dictionary of table name -> details
+    :param config: valve config dictionary
     :param args: arguments provided to in
     :param value: value to run in on
     :return: True if value passes in, error message on False"""
+    table_details = config["table_details"]
     allowed = []
     for arg in args:
         if arg["type"] == "string":
@@ -1263,18 +1263,19 @@ def for_each_list(config, args, value, lookup_value=None):
     return True, None
 
 
-def lookup(table_details, args, value, lookup_value):
+def lookup(config, args, value, lookup_value=None):
     """Method for VALVE 'lookup' function.
 
     The lookup value is found in the first column (second argument), then the allowed
     value is retrieved from the second column (third argument) pair on the same row. The
     provided value must be exactly the same as the found value.
 
-    :param table_details: dictionary of table name -> details
+    :param config: valve config dictionary
     :param args: arguments provided to lookup
     :param value: value to run lookup on
     :param lookup_value: value to lookup in the target table.column pair
     :return: True if value passes lookup, error message on False"""
+    table_details = config["table_details"]
     if not lookup_value:
         raise Exception("A lookup_value is required for a lookup function")
     table_name = args[0]["value"]
@@ -1290,16 +1291,17 @@ def lookup(table_details, args, value, lookup_value):
     return False, f"'{lookup_value}' must present in {table_name}.{column_name}"
 
 
-def under(trees, args, value):
+def under(config, args, value):
     """Method for VALVE 'under' function.
 
     Retrieve the tree defined by the first argument (a table.column pair). The value must be a
     descendant of the second argument.
 
-    :param trees: dictionary of tree name -> dictionary of parent node -> list of children nodes
+    :param config: valve config dictionary
     :param args: arguments provided to under
     :param value: value to run under on
     :return: True if value passes under, error message on False"""
+    trees = config["trees"]
     table_name = args[0]["table"]
     column_name = args[0]["column"]
     tree_name = f"{table_name}.{column_name}"
@@ -1471,11 +1473,12 @@ def write_messages(output, messages):
         writer.writerows(messages)
 
 
-def get_config_from_tables(paths, row_start=2):
+def get_config_from_tables(paths, row_start=2, functions=None):
     """Create a VALVE config dict from a list of paths.
 
     :param paths: input paths
     :param row_start: row number that contents to validate start on
+    :param functions: dict of function name -> functions to add
     :return: config dict
     """
     datatype_table = None
@@ -1521,13 +1524,21 @@ def get_config_from_tables(paths, row_start=2):
             "Additional tables to validate must be included in the input directory(ies)"
         )
 
+    if not functions:
+        functions = builtin_functions
+    else:
+        for funct_name in builtin_functions.keys():
+            if funct_name in functions:
+                raise Exception(f"Cannot use builtin function name '{funct_name}'")
+        functions.update(builtin_functions)
+
     setup_errors = []
     table_details = get_table_details(tables, row_start=row_start)
 
     datatypes, add_errors = read_datatype_table(datatype_table)
     setup_errors.extend(add_errors)
 
-    config = {"table_details": table_details, "datatypes": datatypes}
+    config = {"table_details": table_details, "datatypes": datatypes, "functions": functions}
 
     table_fields, trees, add_errors = read_field_table(config, field_table, row_start=row_start)
     setup_errors.extend(add_errors)
@@ -1539,29 +1550,36 @@ def get_config_from_tables(paths, row_start=2):
         table_rules, add_errors = read_rule_table(config, rule_table)
         setup_errors.extend(add_errors)
 
-    return {
-        "datatypes": datatypes,
-        "table_details": table_details,
-        "table_fields": table_fields,
-        "table_rules": table_rules,
-        "trees": trees,
-        "errors": setup_errors,
-    }
+    config.update(
+        {"table_fields": table_fields, "table_rules": table_rules, "errors": setup_errors}
+    )
+    return config
 
 
-def validate(o, row_start=2, distinct_messages=None):
+def validate(o, row_start=2, distinct_messages=None, functions=None):
     """Main VALVE method.
 
     :param o: inputs or config object
     :param row_start: row number that contents to validate start on
     :param distinct_messages: output directory to write distinct message tables to, or None
+    :param functions: dict of function name -> function to add to builtins
     :return: True if VALVE completed (with or without errors), False if VALVE configuration failed
     """
 
     if isinstance(o, list):
-        config = get_config_from_tables(o, row_start=row_start)
+        config = get_config_from_tables(o, row_start=row_start, functions=functions)
     elif isinstance(o, dict):
         config = o
+        # Update any functions with the builtins
+        if "functions" in config:
+            functions = config["functions"]
+            for funct_name in builtin_functions:
+                if funct_name in functions:
+                    raise Exception(f"Cannot use builtin function name '{funct_name}'")
+            functions.update(builtin_functions)
+            config["functions"] = functions
+        else:
+            config["functions"] = builtin_functions
     else:
         raise Exception(
             "`validate` accepts a list of paths or a config object, not " + type(o).__name__
@@ -1625,6 +1643,19 @@ def main():
     for msg in messages:
         if "level" in msg and msg["level"].lower() == "error":
             sys.exit(1)
+
+
+# Supported functions (distinct & tree are handled at top-level)
+builtin_functions = {
+    "any": any_of,
+    "CURIE": CURIE,
+    "in": in_set,
+    "not": not_any_of,
+    "sub": substitute,
+    "list": for_each_list,
+    "lookup": lookup,
+    "under": under,
+}
 
 
 if __name__ == "__main__":
