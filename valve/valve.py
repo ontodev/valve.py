@@ -242,6 +242,8 @@ def read_field_table(config, field_table, row_start=2):
         sep = ","
     table_name = os.path.splitext(os.path.basename(field_table))[0]
 
+    table_details = config["table_details"]
+
     # Dict of table name -> field types in that table
     table_fields = {}
     trees = {}
@@ -259,7 +261,30 @@ def read_field_table(config, field_table, row_start=2):
         for row in reader:
             idx += 1
             table = row["table"]
+            if table not in table_details and table != "*":
+                errors.append(
+                    {
+                        "table": table_name,
+                        "cell": idx_to_a1(idx, headers.index("table") + 1),
+                        "rule": "missing table",
+                        "message": f"table '{table}' does not exist in inputs",
+                        "kill": True,
+                    }
+                )
+                continue
             column = row["column"]
+            if table != "*":
+                if column not in table_details[table]["fields"]:
+                    errors.append(
+                        {
+                            "table": table_name,
+                            "cell": idx_to_a1(idx, headers.index("table") + 1),
+                            "rule": "missing column",
+                            "message": f"column '{column}' does not exist in table '{table}'",
+                            "kill": True,
+                        }
+                    )
+                    continue
 
             # Dict of field name -> its type (parsed)
             if table in table_fields:
@@ -970,8 +995,8 @@ def meets_condition(config, condition, value, when_condition=None, when_value=No
             return False, f"'{value}' must be of datatype '{unparsed_condition}'"
 
     elif condition_type == "function":
-        success, err = run_function(config, condition, value, lookup_value=when_value)
-        if not success:
+        err = run_function(config, condition, value, lookup_value=when_value)
+        if err:
             if when_condition:
                 return False, f"because '{when_value}' is '{when_condition}', {err}"
             return False, err
@@ -989,7 +1014,7 @@ def run_function(config, function, value, lookup_value=None):
     :param function: function to run (as parsed dictionary)
     :param value: value to run function on
     :param lookup_value: required for lookup function
-    :return: True if value passes function, error message on False
+    :return: None if value passes function or error message on failure
     """
     functions = config["functions"]
     funct_name = function["name"]
@@ -1018,16 +1043,16 @@ def any_of(config, args, value, lookup_value=None):
     :param args: arguments provided to not
     :param value: value to run any on
     :param lookup_value: value required for 'lookup' when lookup is in the arguments
-    :return: True if the value passes at least one condition in the arguments
+    :return: None if value passes function or error message on failure
     """
     conditions = []
     for arg in args:
         if meets_condition(config, arg, value, when_value=lookup_value)[0]:
             # As long as one is met, this passes
-            return True, None
+            return None
         conditions.append(parsed_to_str(arg))
     # If we get here, no condition was met
-    return False, f"'{value}' must meet one of: " + ", ".join(conditions)
+    return f"'{value}' must meet one of: " + ", ".join(conditions)
 
 
 def CURIE(config, args, value):
@@ -1037,7 +1062,7 @@ def CURIE(config, args, value):
     :param config: valve config dictionary
     :param args: arguments provided to CURIE
     :param value: value to run CURIE on
-    :return: True if value passes CURIE, error message on False
+    :return: None if value passes function or error message on failure
     """
     table_details = config["table_details"]
     prefixes = []
@@ -1051,11 +1076,11 @@ def CURIE(config, args, value):
         for row in table_details[table_name]["rows"]:
             prefixes.append(row[column_name])
     if ":" not in value:
-        return False, f"'{value}' must be a CURIE"
+        return f"'{value}' must be a CURIE"
     value_prefix = value.split(":")[0]
     if value_prefix not in prefixes:
-        return False, f"prefix '{value_prefix}' must be one of: " + ", ".join(prefixes)
-    return True, None
+        return f"prefix '{value_prefix}' must be one of: " + ", ".join(prefixes)
+    return None
 
 
 def distinct(table_details, args, table, column, row_start=2):
@@ -1145,14 +1170,15 @@ def in_set(config, args, value):
     :param config: valve config dictionary
     :param args: arguments provided to in
     :param value: value to run in on
-    :return: True if value passes in, error message on False"""
+    :return: None if value passes function or error message on failure
+    """
     table_details = config["table_details"]
     allowed = []
     for arg in args:
         if arg["type"] == "string":
             arg_val = arg["value"]
             if value == arg_val:
-                return True, None
+                return None
             allowed.append(f'"{arg_val}"')
         else:
             table_name = arg["table"]
@@ -1160,9 +1186,9 @@ def in_set(config, args, value):
             source_rows = table_details[table_name]["rows"]
             allowed_values = [x[column_name] for x in source_rows if column_name in x]
             if value in allowed_values:
-                return True, None
+                return None
             allowed.append(f"{table_name}.{column_name}")
-    return False, f"'{value}' must be in: " + ", ".join(allowed)
+    return f"'{value}' must be in: " + ", ".join(allowed)
 
 
 def not_any_of(config, args, value, lookup_value=None):
@@ -1172,16 +1198,16 @@ def not_any_of(config, args, value, lookup_value=None):
     :param args: arguments provided to not
     :param value: value to run not on
     :param lookup_value: value required for 'lookup' when lookup is in the arguments
-    :return: True if value does not pass any condition in the arguments
+    :return: None if value passes function or error message on failure
     """
     for arg in args:
         if meets_condition(config, arg, value, when_value=lookup_value)[0]:
             # If any condition *is* met, this fails
             unparsed = parsed_to_str(arg)
             if unparsed == "blank":
-                return False, f"value must not be blank"
-            return False, f"'{value}' must not be '{unparsed}'"
-    return True, None
+                return f"value must not be blank"
+            return f"'{value}' must not be '{unparsed}'"
+    return None
 
 
 def substitute(config, args, value, lookup_value=None):
@@ -1193,7 +1219,8 @@ def substitute(config, args, value, lookup_value=None):
     :param args: arguments provided to list
     :param value: value to run list on
     :param lookup_value: value required for 'lookup' when 'lookup' is used as the sub-function
-    :return: True if value passes list, error message on False"""
+    :return: None if value passes function or error message on failure
+    """
     regex = args[0]
     subfunc = args[1]
     pattern = regex["pattern"]
@@ -1227,8 +1254,8 @@ def substitute(config, args, value, lookup_value=None):
         datatype = subfunc["value"]
         value_is_datatype = is_datatype(datatypes, datatype, value)[0]
         if not value_is_datatype:
-            return False, f"substituted value '{value}' must be of datatype {datatype}"
-        return True, None
+            return f"substituted value '{value}' must be of datatype {datatype}"
+        return None
     else:
         return run_function(config, subfunc, value, lookup_value=lookup_value)
 
@@ -1243,7 +1270,8 @@ def for_each_list(config, args, value, lookup_value=None):
     :param args: arguments provided to list
     :param value: value to run list on
     :param lookup_value: value required for 'lookup' when 'lookup' is used as the sub-expression
-    :return: True if value passes list, error message on False"""
+    :return: None if value passes function or error message on failure
+    """
     split_char = args[0]["value"]
     expr = args[1]
     datatypes = config["datatypes"]
@@ -1255,12 +1283,12 @@ def for_each_list(config, args, value, lookup_value=None):
             if not success:
                 errs.append(f"sub-value '{v}' must be of datatype '{datatype}'")
         else:
-            success, err = run_function(config, expr, v, lookup_value=lookup_value)
-            if not success:
+            err = run_function(config, expr, v, lookup_value=lookup_value)
+            if err:
                 errs.append(err)
     if errs:
-        return False, "\n".join(errs)
-    return True, None
+        return "\n".join(errs)
+    return None
 
 
 def lookup(config, args, value, lookup_value=None):
@@ -1274,7 +1302,8 @@ def lookup(config, args, value, lookup_value=None):
     :param args: arguments provided to lookup
     :param value: value to run lookup on
     :param lookup_value: value to lookup in the target table.column pair
-    :return: True if value passes lookup, error message on False"""
+    :return: None if value passes function or error message on failure
+    """
     table_details = config["table_details"]
     if not lookup_value:
         raise Exception("A lookup_value is required for a lookup function")
@@ -1286,9 +1315,9 @@ def lookup(config, args, value, lookup_value=None):
         if maybe_value == lookup_value:
             check_value = row[column_name_2]
             if value != check_value:
-                return False, f"'{value}' must be '{check_value}'"
-            return True, None
-    return False, f"'{lookup_value}' must present in {table_name}.{column_name}"
+                return f"'{value}' must be '{check_value}'"
+            return None
+    return f"'{lookup_value}' must present in {table_name}.{column_name}"
 
 
 def under(config, args, value):
@@ -1300,7 +1329,8 @@ def under(config, args, value):
     :param config: valve config dictionary
     :param args: arguments provided to under
     :param value: value to run under on
-    :return: True if value passes under, error message on False"""
+    :return: None if value passes function or error message on failure
+    """
     trees = config["trees"]
     table_name = args[0]["table"]
     column_name = args[0]["column"]
@@ -1314,11 +1344,11 @@ def under(config, args, value):
     if len(args) == 3 and args[2]["value"].lower() == "true":
         direct = True
     if has_ancestor(tree, ancestor, value, direct=direct):
-        return True, None
+        return None
     else:
         if direct:
-            return False, f"'{value}' must be a direct subclass of '{ancestor}' from {tree_name}"
-        return False, f"'{value}' must be equal to or under '{ancestor}' from {tree_name}"
+            return f"'{value}' must be a direct subclass of '{ancestor}' from {tree_name}"
+        return f"'{value}' must be equal to or under '{ancestor}' from {tree_name}"
 
 
 # ---- VALIDATION ----
@@ -1400,7 +1430,6 @@ def validate_table(config, table, fields, rules, row_start=2):
                 # Get the expected field type
                 # This will be validated based on the given datatypes
                 parsed_type = fields[field]["parsed"]
-
                 # all values in this field must match the type
                 mc, err_message = meets_condition(config, parsed_type, value)
                 if not mc:
@@ -1527,9 +1556,8 @@ def get_config_from_tables(paths, row_start=2, functions=None):
     if not functions:
         functions = builtin_functions
     else:
-        for funct_name in builtin_functions.keys():
-            if funct_name in functions:
-                raise Exception(f"Cannot use builtin function name '{funct_name}'")
+        for funct_name, function in functions.items():
+            validate_custom_function(funct_name, function)
         functions.update(builtin_functions)
 
     setup_errors = []
@@ -1556,6 +1584,21 @@ def get_config_from_tables(paths, row_start=2, functions=None):
     return config
 
 
+def validate_custom_function(funct_name, function):
+    if funct_name in builtin_functions:
+        raise Exception(f"Cannot use builtin function name '{funct_name}'")
+    params = list(inspect.signature(function).parameters.keys())
+    if params[0] != "config":
+        raise Exception(f"'{funct_name}' argument 1 must be config")
+    if params[1] != "args":
+        raise Exception(f"'{funct_name}' argument 2 must be args")
+    if params[2] != "value":
+        raise Exception(f"'{funct_name}' argument 3 must be value")
+    if len(params) == 4:
+        if params[3] != "lookup_value":
+            raise Exception(f"'{funct_name}' optional argument 4 must be lookup_value")
+
+
 def validate(o, row_start=2, distinct_messages=None, functions=None):
     """Main VALVE method.
 
@@ -1573,9 +1616,8 @@ def validate(o, row_start=2, distinct_messages=None, functions=None):
         # Update any functions with the builtins
         if "functions" in config:
             functions = config["functions"]
-            for funct_name in builtin_functions:
-                if funct_name in functions:
-                    raise Exception(f"Cannot use builtin function name '{funct_name}'")
+            for funct_name, function in functions.items():
+                validate_custom_function(funct_name, function)
             functions.update(builtin_functions)
             config["functions"] = functions
         else:
@@ -1587,6 +1629,7 @@ def validate(o, row_start=2, distinct_messages=None, functions=None):
 
     table_details = config["table_details"]
     table_fields = config["table_fields"]
+    global_fields = table_fields.get("*", None)
     table_rules = config["table_rules"]
     setup_errors = config["errors"]
 
@@ -1600,8 +1643,11 @@ def validate(o, row_start=2, distinct_messages=None, functions=None):
     for table in table_details.keys():
         logging.info("validating " + table)
         tname = os.path.splitext(os.path.basename(table))[0]
-        fields = table_fields.get(tname, [])
-        rules = table_rules.get(tname, [])
+        fields = table_fields.get(tname, {})
+        rules = table_rules.get(tname, {})
+
+        if global_fields:
+            fields.update(global_fields)
 
         # Validate and return errors
         add_errors = validate_table(config, table, fields, rules, row_start=row_start)

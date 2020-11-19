@@ -1,7 +1,7 @@
 table	column	condition	note
 *	Type	"in(""owl:Class"", ""owl:ObjectProperty"")"	* matches any table; value IN set
-prefix	Prefix	prefix	
-prefix	Base	IRI	
+prefix	prefix	prefix	
+prefix	base	IRI	
 external	ID	distinct(CURIE(prefix.prefix))	a CURIE with a prefix from the prefix table
 external	Label	label	
 external	Parent	tree(Label)	same type as external.label field i.e. label; also build a tree; parent must be in label
@@ -12,4 +12,4 @@ exposure	Exposure Material Reported	"any(blank, under(external.Parent, ""materia
 exposure	Disease Ontology ID	any(blank, CURIE(prefix.prefix))	
 exposure	Disease Reported	"any(blank, under(external.Parent, ""disease""))"	
 exposure	Disease Stage Reported	"any(blank, under(external.Parent, ""disease stage""))"	
-cell	populationDefnitionReported	list(", ", sub(s/(\[.*\])?(\+|-)*$//gi, in(protein.Synonym)))	
+cytometry	populationDefnitionReported	"list("", "", sub(s/(\[.*\])?(\+|-)*$//gi, in(protein.Synonym)))"	
