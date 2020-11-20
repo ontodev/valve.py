@@ -96,15 +96,31 @@ You may call `valve.validate` with an optional `functions={...}` argument. The d
 5. `row_idx`: row index containing value
 6. `value`: value to run the function on
 
-The function should return `None` on success and a string error message on failure.
+The function should return a list of messages (empty on success). The messages are dictionaries with the following keys:
+* `table`: table name (no parent directories or extension)
+* `cell`: A1 format of cell location (you can use `idx_to_a1` to get this)\*
+* `message`: detailed error message
+
+\* When getting the A1 format of the location, note that the `row_idx` always starts at zero, without headers (or any skipped rows) included in the list of rows. You must add `row_start` to this to get the correct row number.
+
+You may also include a `suggestion` key if you want to provide a suggested replacement value.
 
 For example:
 ```python
 def foo_bar(config, args, table, column, row_idx, value):
     required_in_value = args[0]["value"]
     if required_in_value not in value:
-        return f"'{value}' must contain '{required_in_value}'"
-    return None
+        row_start = config["row_start"]
+        col_idx = config["table_details"][table]["fields"].index(column)
+        cell_loc = valve.idx_to_a1(row_idx + row_start, col_idx + 1)
+        return [
+            {
+                "table": table,
+                "cell": cell_loc,
+                "message": f"'{value}' must contain '{required_in_value}'",
+            }
+        ]
+    return []
 
 valve.validate("inputs/", functions={"foo": foo_bar})
 ```
