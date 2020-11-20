@@ -1363,6 +1363,7 @@ def lookup(config, args, table, column, row_idx, value):
                         "table": table,
                         "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
                         "message": f"'{value}' must be '{check_value}'",
+                        "suggestion": check_value,
                     }
                 ]
             return []
