@@ -84,3 +84,27 @@ import valve
 
 <!-- TODO: add link to auto-generated docs -->
 The main method is [`valve.validate`](https://github.com/ontodev/valve.py/blob/main/valve/valve.py#L1470), which accepts either a list of input paths (files or directories) or a config dictionary like the one output by [`valve.get_config_from_tables`](https://github.com/ontodev/valve.py/blob/main/valve/valve.py#L1392). `valve.validate` returns a list of messages. Each message is a dictionary with fields for [COGS message tables](https://github.com/ontodev/cogs#message-tables).
+
+### Custom Functions
+
+You may call `valve.validate` with an optional `functions={...}` argument. The dictionary value should be in the format of function name (for use in rule and field tables) -> function object (which may or may not have the same name). The function name should not collide with any [builtin functions](https://github.com/ontodev/valve/blob/main/README.md#functions). The function must be defined in your file with the following required parameters in this order, even if they are not all used:
+
+1. `config`: VALVE configuration dictionary
+2. `args`: parsed (via `valve.parse`) arguments from the function
+3. `table`: table name containing value
+4. `column`: column name containing value
+5. `row_idx`: row index containing value
+6. `value`: value to run the function on
+
+The function should return `None` on success and a string error message on failure.
+
+For example:
+```python
+def foo_bar(config, args, table, column, row_idx, value):
+    required_in_value = args[0]["value"]
+    if required_in_value not in value:
+        return f"'{value}' must contain '{required_in_value}'"
+    return None
+
+valve.validate("inputs/", functions={"foo": foo_bar})
+```

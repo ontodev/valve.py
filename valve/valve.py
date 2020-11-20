@@ -57,6 +57,26 @@ def build_datatype_ancestors(datatypes, datatype):
     return ancestors
 
 
+def get_indexes(seq, item):
+    """Return all indexes of an item in a sequence.
+
+    :param seq: sequence to check
+    :param item: item to find indexes of
+    :return: list of indexes
+    """
+    start_at = -1
+    locs = []
+    while True:
+        try:
+            loc = seq.index(item, start_at + 1)
+        except ValueError:
+            break
+        else:
+            locs.append(loc)
+            start_at = loc
+    return locs
+
+
 def has_ancestor(tree, ancestor, node, direct=False):
     """Check whether a node has an ancestor (or self) in a tree.
 
@@ -64,7 +84,8 @@ def has_ancestor(tree, ancestor, node, direct=False):
     :param ancestor: the ancestor to look for
     :param node: the node to start from
     :param direct: if True, only look at direct parents, not full ancestors
-    :return: True if it has the ancestor, False otherwise"""
+    :return: True if it has the ancestor, False otherwise
+    """
     if node == ancestor and not direct:
         return True
     if node not in tree:
@@ -342,37 +363,6 @@ def read_field_table(config, field_table, row_start=2):
                         trees[f"{table}.{column}"] = tree
                         config["trees"] = trees
                     continue
-                elif parsed_type["type"] == "function" and parsed_type["name"] == "distinct":
-                    # Validate the args
-                    args = parsed_type["args"]
-                    success, err = validate_distinct(args)
-                    if err:
-                        errors.append(
-                            {
-                                "table": table_name,
-                                "cell": idx_to_a1(idx, headers.index("condition") + 1),
-                                "rule": "`distinct` function error",
-                                "level": "ERROR",
-                                "message": err,
-                                "kill": True,
-                            }
-                        )
-                        continue
-                    success, add_errors = distinct(
-                        config["table_details"], args, table, column, row_start=row_start,
-                    )
-                    if not success:
-                        for err in add_errors:
-                            err.update(
-                                {
-                                    "rule ID": "field:" + str(idx),
-                                    "rule": "non-distinct value(s)",
-                                    "level": "ERROR",
-                                }
-                            )
-                            errors.append(err)
-                    # Set the first arg (an expression) to the type for this table.column
-                    parsed_type = args[0]
 
                 field_types[column] = {
                     "parsed": parsed_type,
@@ -701,6 +691,19 @@ def validate_function(config, function):
                     return False, err
             x += 1
 
+    elif funct_name == "distinct":
+        # distinct(expr, [table-column, ...])
+        success, err = validate_expression(config, "distinct", 1, args[0])
+        if not success:
+            return False, err
+        if len(args) > 1:
+            arg_idx = 2
+            for arg in args[1:]:
+                if not is_type(arg, ["field"]):
+                    return False, f"`distinct` argument {arg_idx} must be a table.column pair"
+                arg_idx += 1
+        return True, None
+
     elif funct_name == "in":
         # in("x", "y", "z", ...)
         x = 1
@@ -829,24 +832,6 @@ def validate_condition(config, parsed_condition):
     return True, None
 
 
-def validate_distinct(args):
-    """Validate arguments to the `distinct` function.
-
-    :param args: list of args passed to `distinct`
-    :return: True if valid or False if not, error message on False
-    """
-    expr = args[0]
-    if expr["type"] != "datatype" and expr["type"] != "function":
-        return False, "`distinct` argument 1 must be a datatype or function"
-    if len(args) > 1:
-        arg_idx = 2
-        for arg in args[1:]:
-            if not isinstance(arg, dict) or arg["type"] != "field":
-                return False, f"`distinct` argument {arg_idx} must be a table.column pair"
-            arg_idx += 1
-    return True, None
-
-
 def validate_level(level):
     """Validate a level entry. The level must be one of (case-insensitive): error, warn, or info.
 
@@ -959,23 +944,25 @@ def is_datatype(datatypes, datatype, value):
         if re_pattern:
             if not re.match(re_pattern, value):
                 fix = datatypes[dt].get("replace")
-                match = re.match(r".?/(.+)/(.+)/.?", fix)
-                if match:
-                    pattern = match.group(1)
-                    replace = match.group(2)
+                if fix:
+                    parsed = parse(fix)
+                    # TODO - handle flags
+                    pattern = parsed["pattern"]
+                    replace = parsed["replace"]
                     return False, re.sub(pattern, replace, value)
                 return False, None
     return True, None
 
 
-def meets_condition(config, condition, value, when_condition=None, when_value=None):
+def meets_condition(config, condition, table, column, row_idx, value):
     """Determine if the value meets the condition.
 
     :param config: valve config dictionary
     :param condition: parsed condition to check (as dict)
+    :param table: table name
+    :param column: column name
+    :param row_idx: row number from values
     :param value: value to check
-    :param when_value: "when value" to prompt checking rule
-    :param when_condition: unparsed "when condition" to prompt checking rule
     :return: True if value meets condition, error message on False
     """
     condition_type = condition["type"]
@@ -986,19 +973,11 @@ def meets_condition(config, condition, value, when_condition=None, when_value=No
         value_meets_condition, replace = is_datatype(datatypes, datatype, value)
         if value_meets_condition is False:
             unparsed_condition = parsed_to_str(condition)
-            if when_condition:
-                return (
-                    False,
-                    f"because '{when_value}' is '{when_condition}', '{value}' must be of datatype "
-                    f"'{unparsed_condition}'",
-                )
             return False, f"'{value}' must be of datatype '{unparsed_condition}'"
 
     elif condition_type == "function":
-        err = run_function(config, condition, value, lookup_value=when_value)
+        err = run_function(config, condition, table, column, row_idx, value)
         if err:
-            if when_condition:
-                return False, f"because '{when_value}' is '{when_condition}', {err}"
             return False, err
 
     else:
@@ -1007,13 +986,15 @@ def meets_condition(config, condition, value, when_condition=None, when_value=No
     return True, None
 
 
-def run_function(config, function, value, lookup_value=None):
+def run_function(config, function, table, column, row_idx, value):
     """Run a VALVE function for the provided value.
 
     :param config: valve config dictionary
     :param function: function to run (as parsed dictionary)
+    :param table: table to run distinct on
+    :param column: column to run distinct on
+    :param row_idx: current row number
     :param value: value to run function on
-    :param lookup_value: required for lookup function
     :return: None if value passes function or error message on failure
     """
     functions = config["functions"]
@@ -1026,28 +1007,26 @@ def run_function(config, function, value, lookup_value=None):
     if not fn:
         raise Exception(f"Function '{funct_name}' must be defined")
 
-    sig = inspect.signature(fn)
-    if "lookup_value" in sig.parameters.keys():
-        return fn(config, args, value, lookup_value=lookup_value)
-    else:
-        return fn(config, args, value)
+    return fn(config, args, table, column, row_idx, value)
 
 
 # ---- VALVE FUNCTIONS ----
 
 
-def any_of(config, args, value, lookup_value=None):
+def any_of(config, args, table, column, row_idx, value):
     """Method for the VALVE 'any' function.
 
     :param config: valve config dictionary
     :param args: arguments provided to not
+    :param table: table to run distinct on
+    :param column: column to run distinct on
+    :param row_idx: current row number
     :param value: value to run any on
-    :param lookup_value: value required for 'lookup' when lookup is in the arguments
     :return: None if value passes function or error message on failure
     """
     conditions = []
     for arg in args:
-        if meets_condition(config, arg, value, when_value=lookup_value)[0]:
+        if meets_condition(config, arg, table, column, row_idx, value)[0]:
             # As long as one is met, this passes
             return None
         conditions.append(parsed_to_str(arg))
@@ -1055,12 +1034,15 @@ def any_of(config, args, value, lookup_value=None):
     return f"'{value}' must meet one of: " + ", ".join(conditions)
 
 
-def CURIE(config, args, value):
+def CURIE(config, args, table, column, row_idx, value):
     """Method for the VALVE 'CURIE' function. The value must be a CURIE and the prefix of the value
     must be in the table.column pair or string defined by the arg (1+ args)
 
     :param config: valve config dictionary
     :param args: arguments provided to CURIE
+    :param table: table to run distinct on
+    :param column: column to run distinct on
+    :param row_idx: current row number
     :param value: value to run CURIE on
     :return: None if value passes function or error message on failure
     """
@@ -1083,92 +1065,60 @@ def CURIE(config, args, value):
     return None
 
 
-def distinct(table_details, args, table, column, row_start=2):
+def distinct(config, args, table, column, row_idx, value):
     """Method for the VALVE 'distinct' function. This is run over all rows, rather than one value.
 
-    :param table_details: dictionary of table name -> details
+    :param config: valve config dictionary
     :param args: arguments provided to distinct
     :param table: table to run distinct on
     :param column: column to run distinct on
-    :param row_start: row number of row that values to validate start on
+    :param row_idx: current row number
+    :param value: value to run distinct on
     :return: True if values pass distinct, list of errors on False
     """
+    table_details = config["table_details"]
+    row_start = config["row_start"]
     base_rows = table_details[table]["rows"]
     base_headers = table_details[table]["fields"]
-    base_values = [x[column] for x in base_rows if x.get(column, None)]
+    base_values = [x.get(column, None) for x in base_rows]
 
-    # extra columns to check - {table: {column: values}}
-    errors = []
-    with_values = defaultdict(dict)
+    duplicate_locs = set()
+    value_indexes = get_indexes(base_values, value)
+    if len(value_indexes) > 1:
+        col_idx = base_headers.index(column) + 1
+        for idx in value_indexes:
+            if idx == row_idx:
+                continue
+            duplicate_locs.add(f"{table}:{idx_to_a1(idx + row_start, col_idx)}")
+
+    # extra table-columns to check
     if len(args) > 1:
         for itm in args[1:]:
             t = itm["table"]
             c = itm["column"]
             trows = table_details[t]["rows"]
-            values = [x[c] for x in trows if x.get(c, None)]
-            if t not in with_values:
-                with_values[t] = dict()
-            with_values[t].update({c: values})
-
-    # Check external table.columns for values that are duplicate to anything in table.column
-    duplicate_values = defaultdict(set)
-    for t, col_values in with_values.items():
-        for c, values in col_values.items():
-            headers = table_details[t]["fields"]
-            idx = row_start
-            for v in values:
-                if v in base_values:
-                    base_loc = idx_to_a1(
-                        base_values.index(v) + row_start, base_headers.index(column) + 1
-                    )
-                    if v not in duplicate_values:
-                        duplicate_values[v] = set()
-                    duplicate_values[v].add(f"{t}:{idx_to_a1(idx, headers.index(c) + 1)}")
-                    duplicate_values[v].add(f"{table}:{base_loc}")
-                idx += 1
-
-    # Check the table.column for duplicate values
-    if len(base_values) > len(set(base_values)):
-        # Create a dict of value -> indexes
-        value_to_idxs = defaultdict(list)
-        for i, v in enumerate(base_values):
-            value_to_idxs[v].append(i)
-        value_to_idxs = {k: v for k, v in value_to_idxs.items() if len(v) > 1}
-
-        # Add these to the duplicate_values map
-        for val, idxs in value_to_idxs.items():
-            if val not in duplicate_values:
-                duplicate_values[val] = set()
-            for i in idxs:
-                duplicate_values[val].add(
-                    f"{table}:{idx_to_a1(i + row_start, base_headers.index(column) + 1)}"
-                )
+            theaders = table_details[t]["fields"]
+            tvalues = [x.get(c, None) for x in trows]
+            if value in tvalues:
+                value_indexes = get_indexes(tvalues, value)
+                col_idx = theaders.index(c) + 1
+                for idx in value_indexes:
+                    duplicate_locs.add(f"{t}:{idx_to_a1(idx + row_start, col_idx)}")
 
     # Create the error messages
-    for value, locs in duplicate_values.items():
-        for loc in locs:
-            t = loc.split(":")[0]
-            a1 = loc.split(":")[1]
-            other_locs = locs.copy()
-            other_locs.remove(loc)
-            errors.append(
-                {
-                    "table": t,
-                    "cell": a1,
-                    "message": f"'{value}' must be distinct with value(s) at: "
-                    + ", ".join(other_locs),
-                }
-            )
-    if errors:
-        return False, errors
-    return True, None
+    if duplicate_locs:
+        return f"'{value}' must be distinct with value(s) at: " + ", ".join(duplicate_locs)
+    return None
 
 
-def in_set(config, args, value):
+def in_set(config, args, table, column, row_idx, value):
     """Method for the VALVE 'in' function. The value must be one of the arguments.
 
     :param config: valve config dictionary
     :param args: arguments provided to in
+    :param table: table name
+    :param column: column name
+    :param row_idx: row number from values
     :param value: value to run in on
     :return: None if value passes function or error message on failure
     """
@@ -1191,17 +1141,19 @@ def in_set(config, args, value):
     return f"'{value}' must be in: " + ", ".join(allowed)
 
 
-def not_any_of(config, args, value, lookup_value=None):
+def not_any_of(config, args, table, column, row_idx, value):
     """Method for the VALVE 'not' function.
 
     :param config: valve config dictionary
     :param args: arguments provided to not
+    :param table: table name
+    :param column: column name
+    :param row_idx: row number from values
     :param value: value to run not on
-    :param lookup_value: value required for 'lookup' when lookup is in the arguments
     :return: None if value passes function or error message on failure
     """
     for arg in args:
-        if meets_condition(config, arg, value, when_value=lookup_value)[0]:
+        if meets_condition(config, arg, table, column, row_idx, value)[0]:
             # If any condition *is* met, this fails
             unparsed = parsed_to_str(arg)
             if unparsed == "blank":
@@ -1210,15 +1162,17 @@ def not_any_of(config, args, value, lookup_value=None):
     return None
 
 
-def substitute(config, args, value, lookup_value=None):
+def substitute(config, args, table, column, row_idx, value):
     """Method for the VALVE 'sub' function.
 
     Substitute match with replacement, then evaluate the expression.
 
     :param config: valve config dictionary
     :param args: arguments provided to list
+    :param table: table name
+    :param column: column name
+    :param row_idx: row number from values
     :param value: value to run list on
-    :param lookup_value: value required for 'lookup' when 'lookup' is used as the sub-function
     :return: None if value passes function or error message on failure
     """
     regex = args[0]
@@ -1257,10 +1211,10 @@ def substitute(config, args, value, lookup_value=None):
             return f"substituted value '{value}' must be of datatype {datatype}"
         return None
     else:
-        return run_function(config, subfunc, value, lookup_value=lookup_value)
+        return run_function(config, subfunc, table, column, row_idx, value)
 
 
-def for_each_list(config, args, value, lookup_value=None):
+def for_each_list(config, args, table, column, row_idx, value):
     """Method for the VALVE 'list' function.
 
     Split the value on the first argument and perform the function or datatype check provided as the
@@ -1268,8 +1222,10 @@ def for_each_list(config, args, value, lookup_value=None):
 
     :param config: valve config dictionary
     :param args: arguments provided to list
+    :param table: table name
+    :param column: column name
+    :param row_idx: row number from values
     :param value: value to run list on
-    :param lookup_value: value required for 'lookup' when 'lookup' is used as the sub-expression
     :return: None if value passes function or error message on failure
     """
     split_char = args[0]["value"]
@@ -1283,7 +1239,7 @@ def for_each_list(config, args, value, lookup_value=None):
             if not success:
                 errs.append(f"sub-value '{v}' must be of datatype '{datatype}'")
         else:
-            err = run_function(config, expr, v, lookup_value=lookup_value)
+            err = run_function(config, expr, table, column, row_idx, v)
             if err:
                 errs.append(err)
     if errs:
@@ -1291,7 +1247,7 @@ def for_each_list(config, args, value, lookup_value=None):
     return None
 
 
-def lookup(config, args, value, lookup_value=None):
+def lookup(config, args, table, column, row_idx, value):
     """Method for VALVE 'lookup' function.
 
     The lookup value is found in the first column (second argument), then the allowed
@@ -1300,27 +1256,41 @@ def lookup(config, args, value, lookup_value=None):
 
     :param config: valve config dictionary
     :param args: arguments provided to lookup
+    :param table: table name
+    :param column: column name
+    :param row_idx: row number from values
     :param value: value to run lookup on
-    :param lookup_value: value to lookup in the target table.column pair
     :return: None if value passes function or error message on failure
     """
     table_details = config["table_details"]
+    table_rules = config["table_rules"][table]
+    lookup_value = None
+    for when_column, rules in table_rules.items():
+        if when_column == column:
+            for rule in rules:
+                then_condition = rule["then_condition"]
+                if then_condition.get("name", "") != "lookup":
+                    continue
+                lookup_value = table_details[table]["rows"][row_idx][when_column]
+                break
+
     if not lookup_value:
-        raise Exception("A lookup_value is required for a lookup function")
-    table_name = args[0]["value"]
-    column_name = args[1]["value"]
-    column_name_2 = args[2]["value"]
-    for row in table_details[table_name]["rows"]:
-        maybe_value = row[column_name]
+        raise Exception("TODO")
+
+    search_table = args[0]["value"]
+    search_column = args[1]["value"]
+    return_column = args[2]["value"]
+    for row in table_details[search_table]["rows"]:
+        maybe_value = row[search_column]
         if maybe_value == lookup_value:
-            check_value = row[column_name_2]
+            check_value = row[return_column]
             if value != check_value:
                 return f"'{value}' must be '{check_value}'"
             return None
-    return f"'{lookup_value}' must present in {table_name}.{column_name}"
+    return f"'{value}' must present in {search_table}.{return_column}"
 
 
-def under(config, args, value):
+def under(config, args, table, column, row_idx, value):
     """Method for VALVE 'under' function.
 
     Retrieve the tree defined by the first argument (a table.column pair). The value must be a
@@ -1328,6 +1298,9 @@ def under(config, args, value):
 
     :param config: valve config dictionary
     :param args: arguments provided to under
+    :param table: table name
+    :param column: column name
+    :param row_idx: row number from values
     :param value: value to run under on
     :return: None if value passes function or error message on failure
     """
@@ -1406,20 +1379,25 @@ def collect_distinct_messages(table_details, output_dir, table, messages):
     return messages
 
 
-def validate_table(config, table, fields, rules, row_start=2):
+def validate_table(config, table):
     """Run VALVE validation on a table.
 
     :param config: valve config dictionary
     :param table: path to table
-    :param fields: {field-name: type, ...}
-    :param rules: dictionary of rules
-    :param row_start: row number that contents to validate start on
     :return: list of errors
     """
     errors = []
-    table_details = config["table_details"]
     table_name = os.path.splitext(os.path.basename(table))[0]
-    row_idx = row_start
+    table_details = config["table_details"]
+    table_headers = table_details[table_name]["fields"]
+    row_start = config["row_start"]
+
+    fields = config["table_fields"].get(table, {})
+    fields.update(config.get("*", {}))
+    rules = config["table_rules"].get(table, {})
+    rules.update(config.get("*", {}))
+
+    row_idx = 0
     for row in table_details[table_name]["rows"]:
         col_idx = 1
         for field, value in row.items():
@@ -1431,13 +1409,15 @@ def validate_table(config, table, fields, rules, row_start=2):
                 # This will be validated based on the given datatypes
                 parsed_type = fields[field]["parsed"]
                 # all values in this field must match the type
-                mc, err_message = meets_condition(config, parsed_type, value)
+                mc, err_message = meets_condition(
+                    config, parsed_type, table_name, field, row_idx, value
+                )
                 if not mc:
                     field_id = fields[field]["field ID"]
                     errors.append(
                         {
                             "table": table_name,
-                            "cell": idx_to_a1(row_idx, col_idx),
+                            "cell": idx_to_a1(row_idx + row_start, col_idx),
                             "rule ID": "field:" + str(field_id),
                             "level": "ERROR",
                             "message": err_message,
@@ -1447,32 +1427,31 @@ def validate_table(config, table, fields, rules, row_start=2):
             if field in rules:
                 # Check if the value meets any of the conditions
                 for rule in rules[field]:
+                    when_condition = rule["when_condition"]
                     # Run meets_condition without logging
                     # as the then-cond check is only run if the value matches the type
-                    if meets_condition(config, rule["when_condition"], value)[0]:
+                    if meets_condition(config, when_condition, table_name, field, row_idx, value)[
+                        0
+                    ]:
                         # The "when" value meets the condition - validate the "then" value
-                        table = rule["table"]
-                        column = rule["column"]
+                        then_column = rule["column"]
 
                         # Retrieve the "then" value to check if it meets the "then condition"
-                        check_value = table_details[table]["rows"][row_idx - row_start][column]
-                        check_col_idx = table_details[table]["fields"].index(column)
-                        success, err_message = meets_condition(
-                            config,
-                            rule["then_condition"],
-                            check_value,
-                            when_condition=parsed_to_str(rule["when_condition"]),
-                            when_value=value,
+                        check_value = row[then_column]
+                        check_col_idx = table_headers.index(then_column)
+                        success, err = meets_condition(
+                            config, rule["then_condition"], table_name, field, row_idx, check_value,
                         )
                         if not success:
+                            err = f"because '{value}' is '{parsed_to_str(when_condition)}', {err}"
                             errors.append(
                                 {
                                     "table": table_name,
-                                    "cell": idx_to_a1(row_idx, check_col_idx + 1),
+                                    "cell": idx_to_a1(row_idx + row_start, check_col_idx + 1),
                                     "rule ID": "rule:" + str(rule["rule ID"]),
                                     "rule": rule["message"],
                                     "level": rule["level"],
-                                    "message": err_message,
+                                    "message": err,
                                 }
                             )
             col_idx += 1
@@ -1579,7 +1558,12 @@ def get_config_from_tables(paths, row_start=2, functions=None):
         setup_errors.extend(add_errors)
 
     config.update(
-        {"table_fields": table_fields, "table_rules": table_rules, "errors": setup_errors}
+        {
+            "table_fields": table_fields,
+            "table_rules": table_rules,
+            "errors": setup_errors,
+            "row_start": row_start,
+        }
     )
     return config
 
@@ -1592,11 +1576,14 @@ def validate_custom_function(funct_name, function):
         raise Exception(f"'{funct_name}' argument 1 must be config")
     if params[1] != "args":
         raise Exception(f"'{funct_name}' argument 2 must be args")
-    if params[2] != "value":
+    if params[2] != "table":
         raise Exception(f"'{funct_name}' argument 3 must be value")
-    if len(params) == 4:
-        if params[3] != "lookup_value":
-            raise Exception(f"'{funct_name}' optional argument 4 must be lookup_value")
+    if params[3] != "column":
+        raise Exception(f"'{funct_name}' argument 4 must be value")
+    if params[4] != "row_idx":
+        raise Exception(f"'{funct_name}' argument 5 must be value")
+    if params[5] != "value":
+        raise Exception(f"'{funct_name}' argument 6 must be value")
 
 
 def validate(o, row_start=2, distinct_messages=None, functions=None):
@@ -1622,15 +1609,14 @@ def validate(o, row_start=2, distinct_messages=None, functions=None):
             config["functions"] = functions
         else:
             config["functions"] = builtin_functions
+        if "row_start" not in config:
+            config["row_start"] = row_start
     else:
         raise Exception(
             "`validate` accepts a list of paths or a config object, not " + type(o).__name__
         )
 
     table_details = config["table_details"]
-    table_fields = config["table_fields"]
-    global_fields = table_fields.get("*", None)
-    table_rules = config["table_rules"]
     setup_errors = config["errors"]
 
     # Check for true setup errors and stop process if they exist
@@ -1643,14 +1629,9 @@ def validate(o, row_start=2, distinct_messages=None, functions=None):
     for table in table_details.keys():
         logging.info("validating " + table)
         tname = os.path.splitext(os.path.basename(table))[0]
-        fields = table_fields.get(tname, {})
-        rules = table_rules.get(tname, {})
-
-        if global_fields:
-            fields.update(global_fields)
 
         # Validate and return errors
-        add_errors = validate_table(config, table, fields, rules, row_start=row_start)
+        add_errors = validate_table(config, table)
 
         # Add any non-kill errors that were found during setup
         add_errors.extend([x for x in setup_errors if x["table"] == tname])
@@ -1695,6 +1676,7 @@ def main():
 builtin_functions = {
     "any": any_of,
     "CURIE": CURIE,
+    "distinct": distinct,
     "in": in_set,
     "not": not_any_of,
     "sub": substitute,
