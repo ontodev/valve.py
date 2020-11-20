@@ -98,7 +98,7 @@ You may call `valve.validate` with an optional `functions={...}` argument. The d
 
 The function should return a list of messages (empty on success). The messages are dictionaries with the following keys:
 * `table`: table name (no parent directories or extension)
-* `cell`: A1 format of cell location (you can use `idx_to_a1` to get this)\*
+* `cell`: A1 format of cell location (you can use `idx_to_a1` to get this\*)
 * `message`: detailed error message
 
 \* When getting the A1 format of the location, note that the `row_idx` always starts at zero, without headers (or any skipped rows) included in the list of rows. You must add `row_start` to this to get the correct row number.

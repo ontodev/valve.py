@@ -12,4 +12,4 @@ exposure	Exposure Material Reported	"any(blank, under(external.Parent, ""materia
 exposure	Disease Ontology ID	any(blank, CURIE(prefix.prefix))	
 exposure	Disease Reported	"any(blank, under(external.Parent, ""disease""))"	
 exposure	Disease Stage Reported	"any(blank, under(external.Parent, ""disease stage""))"	
-cytometry	populationDefnitionReported	"list("", "", sub(s/(\[.*\])?(\+|-)*$//gi, in(protein.Synonym)))"	
+cytometry	populationDefinitionReported	"list("", "", sub(s/(\[.*\])?(\+|-)*$//gi, in(protein.Synonym)))"	
