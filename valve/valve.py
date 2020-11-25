@@ -57,6 +57,26 @@ def build_datatype_ancestors(datatypes, datatype):
     return ancestors
 
 
+def create_message(table, col_num, row_num, message, suggestion=None):
+    """Create a validation message.
+
+    :param table: table name to display message
+    :param col_num: column number in sheet to display message
+    :param row_num: row number in sheet to display message
+    :param message: string message
+    :param suggestion: string suggestion for replacement
+    :return: message dictionary
+    """
+    d = {
+        "table": table,
+        "cell": idx_to_a1(row_num, col_num),
+        "message": message,
+    }
+    if suggestion:
+        d["suggestion"] = suggestion
+    return d
+
+
 def get_indexes(seq, item):
     """Return all indexes of an item in a sequence.
 
@@ -236,7 +256,7 @@ def read_datatype_table(datatype_table):
             )
 
         level = details.get("level", "")
-        if not validate_level(level):
+        if not level_is_valid(level):
             errors.append(
                 {
                     "table": table_name,
@@ -249,14 +269,14 @@ def read_datatype_table(datatype_table):
     return datatypes, errors
 
 
-def read_field_table(config, field_table, row_start=2):
+def read_field_table(config, field_table):
     """Build a dictionary of fields.
 
     :param config: valve config dictionary containing table_details
     :param field_table: path to the 'field' table
-    :param row_start: row number that contents to validate start on
     :return: dictionary of table-name -> field-name -> types
     """
+    row_start = config["row_start"]
     errors = []
     sep = "\t"
     if field_table.endswith("csv"):
@@ -281,35 +301,35 @@ def read_field_table(config, field_table, row_start=2):
         idx = 1
         for row in reader:
             idx += 1
-            table = row["table"]
-            if table not in table_details and table != "*":
+            table_to_validate = row["table"]
+            if table_to_validate not in table_details and table_to_validate != "*":
                 errors.append(
                     {
                         "table": table_name,
                         "cell": idx_to_a1(idx, headers.index("table") + 1),
                         "rule": "missing table",
-                        "message": f"table '{table}' does not exist in inputs",
+                        "message": f"table '{table_to_validate}' does not exist in inputs",
                         "kill": True,
                     }
                 )
                 continue
             column = row["column"]
-            if table != "*":
-                if column not in table_details[table]["fields"]:
+            if table_to_validate != "*":
+                if column not in table_details[table_to_validate]["fields"]:
                     errors.append(
                         {
                             "table": table_name,
                             "cell": idx_to_a1(idx, headers.index("table") + 1),
                             "rule": "missing column",
-                            "message": f"column '{column}' does not exist in table '{table}'",
+                            "message": f"'{column}' does not exist in table '{table_to_validate}'",
                             "kill": True,
                         }
                     )
                     continue
 
             # Dict of field name -> its type (parsed)
-            if table in table_fields:
-                field_types = table_fields[table]
+            if table_to_validate in table_fields:
+                field_types = table_fields[table_to_validate]
             else:
                 field_types = {}
 
@@ -327,8 +347,8 @@ def read_field_table(config, field_table, row_start=2):
             else:
                 # Parse the field condition
                 parsed_type = parse(row["condition"])
-                success, err = validate_condition(config, parsed_type)
-                if not success:
+                err = check_condition(config, parsed_type)
+                if err:
                     errors.append(
                         {
                             "table": table_name,
@@ -343,24 +363,31 @@ def read_field_table(config, field_table, row_start=2):
                     # Special processing for `tree` function
                     # This does not get added to field_types,
                     # but a tree is built and added to global trees
-                    tree, add_errors = validate_tree_type(
-                        config, idx, table, column, parsed_type, row_start=row_start
+                    tree_opts, err = get_tree_options(parsed_type)
+                    if err:
+                        errors.append(
+                            {
+                                "table": table_name,
+                                "cell": idx_to_a1(idx + row_start, headers.index(column) + 1),
+                                "rule": "`tree` function error",
+                                "level": "ERROR",
+                                "message": err,
+                                "kill": True,
+                            }
+                        )
+                        return table_fields, trees, errors
+                    tree, errs = build_tree(
+                        config,
+                        idx,
+                        table_to_validate,
+                        column,
+                        tree_opts["child_column"],
+                        add_tree_name=tree_opts["add_tree_name"],
+                        split_char=tree_opts["split_char"],
                     )
-                    for err in add_errors:
-                        if "table" not in err:
-                            err.update(
-                                {
-                                    "table": table_name,
-                                    "cell": idx_to_a1(idx, headers.index("condition") + 1),
-                                    "rule": "`tree` function error",
-                                    "level": "ERROR",
-                                    "kill": True,
-                                }
-                            )
-                        errors.append(err)
+                    errors.extend(errs)
                     if tree:
-                        # Add tree to config for further tree iterations
-                        trees[f"{table}.{column}"] = tree
+                        trees[f"{table_to_validate}.{column}"] = tree
                         config["trees"] = trees
                     continue
 
@@ -368,7 +395,7 @@ def read_field_table(config, field_table, row_start=2):
                     "parsed": parsed_type,
                     "field ID": idx,
                 }
-                table_fields[table] = field_types
+                table_fields[table_to_validate] = field_types
 
     return table_fields, trees, errors
 
@@ -403,12 +430,12 @@ def read_rule_table(config, rule_table):
         for row in reader:
             idx += 1
             # Validate the when table.column (check that these exist)
-            table = row["table"]
+            table_to_validate = row["table"]
             table_loc = idx_to_a1(idx, headers.index("table") + 1)
             when_column = row["when column"]
             when_column_loc = idx_to_a1(idx, headers.index("when column") + 1)
 
-            if table not in table_columns.keys():
+            if table_to_validate not in table_columns.keys():
                 errors.append(
                     {
                         "table": table_name,
@@ -419,13 +446,13 @@ def read_rule_table(config, rule_table):
                     }
                 )
             else:
-                if when_column not in table_columns[table]:
+                if when_column not in table_columns[table_to_validate]:
                     errors.append(
                         {
                             "table": table_name,
                             "cell": when_column_loc,
                             "rule": "unknown column",
-                            "message": f"the provided column must exist in '{table}'",
+                            "message": f"'{when_column}' must exist in '{table_to_validate}'",
                             "kill": True,
                         }
                     )
@@ -433,8 +460,8 @@ def read_rule_table(config, rule_table):
             # Validate the when condition
             when_condition = row["when condition"]
             parsed_when_condition = parse(when_condition)
-            success, err = validate_condition(config, parsed_when_condition)
-            if not success:
+            err = check_condition(config, parsed_when_condition)
+            if err:
                 # when-cond could not be parsed
                 errors.append(
                     {
@@ -448,8 +475,8 @@ def read_rule_table(config, rule_table):
                 continue
 
             # Get the existing columns -> rules for given table
-            if table in table_rules:
-                column_rules = table_rules[table]
+            if table_to_validate in table_rules:
+                column_rules = table_rules[table_to_validate]
             else:
                 column_rules = {}
 
@@ -462,8 +489,8 @@ def read_rule_table(config, rule_table):
             # Validate the then condition
             then_condition = row["then condition"]
             parsed_then_condition = parse(then_condition)
-            success, err = validate_condition(config, parsed_then_condition)
-            if not success:
+            err = check_condition(config, parsed_then_condition)
+            if err:
                 # then-cond could not be parsed
                 errors.append(
                     {
@@ -478,7 +505,7 @@ def read_rule_table(config, rule_table):
 
             # Validate the message level
             level = row.get("level", "")
-            if not validate_level(level):
+            if not level_is_valid(level):
                 errors.append(
                     {
                         "table": table_name,
@@ -492,13 +519,13 @@ def read_rule_table(config, rule_table):
             # Validate the when table.column (check that these exist)
             then_column = row["then column"]
             then_column_loc = idx_to_a1(idx, headers.index("then column") + 1)
-            if then_column not in table_columns[table]:
+            if then_column not in table_columns[table_to_validate]:
                 errors.append(
                     {
                         "table": table_name,
                         "cell": then_column_loc,
                         "rule": "unknown column",
-                        "message": f"the provided column must exist in '{table}'",
+                        "message": f"'{then_column}' must exist in '{table_to_validate}'",
                         "kill": True,
                     }
                 )
@@ -515,8 +542,7 @@ def read_rule_table(config, rule_table):
                 }
             )
             column_rules[when_column] = rules
-            table_rules[table] = column_rules
-
+            table_rules[table_to_validate] = column_rules
     return table_rules, errors
 
 
@@ -524,14 +550,7 @@ def read_rule_table(config, rule_table):
 
 
 def build_tree(
-    config,
-    fn_row_idx,
-    table_name,
-    parent_column,
-    child_column,
-    row_start=2,
-    add_tree_name=None,
-    split_char="|",
+    config, fn_row_idx, table_name, parent_column, child_column, add_tree_name=None, split_char="|",
 ):
     """Build a hierarchy for the `tree` function while validating the values.
 
@@ -540,14 +559,13 @@ def build_tree(
     :param table_name: table name
     :param parent_column: name of column that 'Parent' values are in
     :param child_column: name of column that 'Child' values are in
-    :param row_start: row number that contents to validate start on
     :param add_tree_name: optional name of tree to add to
     :param split_char: character to split parent values on
     :return: map of child -> parents, list of errors (if any)
     """
     errors = []
-
     table_details = config["table_details"]
+    row_start = config["row_start"]
     rows = table_details[table_name]["rows"]
     col_idx = table_details[table_name]["fields"].index(parent_column)
     trees = config.get("trees", {})
@@ -599,6 +617,267 @@ def build_tree(
     return tree, errors
 
 
+def check_condition(config, parsed_condition):
+    """Validate a condition. Return an error message if not valid.
+
+    :param config: valve config dictionary
+    :param parsed_condition: parsed condition to validate
+    :return: None on success, error message on failure
+    """
+    datatypes = config["datatypes"]
+    cond_type = parsed_condition["type"]
+
+    if cond_type == "string":
+        dt = parsed_condition["value"]
+        if dt not in datatypes.keys():
+            return f"datatype '{dt}' must be defined in the datatype table"
+    elif cond_type == "function":
+        return check_function(config, parsed_condition)
+    else:
+        raise Exception("Unknown condition type: " + cond_type)
+    return None
+
+
+def check_expression(config, funct_name, pos, arg):
+    """Check that an argument is a function or datatype. Return an error message if not.
+
+    :param config: valve config dictionary
+    :param funct_name: name of function currently being validated
+    :param pos: position of this argument
+    :param arg: argument to validate
+    :return: None on success, error message on failure
+    """
+    if not is_type(arg, ["string", "function"]):
+        return False, f"`{funct_name}` argument {pos} ({arg}) must be a valid datatype or function"
+    if arg["type"] == "string":
+        datatypes = config["datatypes"]
+        dt_name = arg["value"]
+        if dt_name not in datatypes:
+            return f"`{funct_name}` argument {pos} ({dt_name}) must be a defined datatype"
+    else:
+        err = check_function(config, arg)
+        if err:
+            return f"`{funct_name}` argument {pos} must be a valid datatype or function: " + err
+    return None
+
+
+def check_function(config, function):
+    """Validate a function and return an error message if not valid.
+
+    :param config: valve config dictionary
+    :param function: parsed function as dictionary
+    :return: None on success or error message
+    """
+    functions = config["functions"]
+    funct_name = function["name"]
+    # Add tree & distinct to functions (resolved at top-level)
+    allowed_funct_names = list(functions.keys()) + ["tree"]
+    if funct_name not in allowed_funct_names:
+        return f"function name ({funct_name}) must be one of: " + ",".join(allowed_funct_names)
+
+    if funct_name not in builtin_functions.keys():
+        # No validation for args to custom functions
+        return None
+
+    table_details = config["table_details"]
+
+    # Special validation for each builtin function
+    args = function["args"]
+    if funct_name == "any":
+        # any(expr, expr, ...)
+        x = 1
+        for arg in args:
+            err = check_expression(config, "any", x, arg)
+            if err:
+                return err
+            x += 1
+
+    elif funct_name == "CURIE":
+        # CURIE(table.column)
+        x = 1
+        for arg in args:
+            if not is_type(arg, ["string", "field"]):
+                return f"`CURIE` argument {x} must be a table.column pair or a string"
+            if arg["type"] == "field":
+                return check_table_column(table_details, "CURIE", x, arg)
+            x += 1
+
+    elif funct_name == "distinct":
+        # distinct(expr, [table-column, ...])
+        err = check_expression(config, "distinct", 1, args[0])
+        if err:
+            return err
+        if len(args) > 1:
+            arg_idx = 2
+            for arg in args[1:]:
+                if not is_type(arg, ["field"]):
+                    return f"`distinct` argument {arg_idx} must be a table.column pair"
+                arg_idx += 1
+
+    elif funct_name == "in":
+        # in("x", "y", "z", ...)
+        x = 1
+        for arg in args:
+            if not is_type(arg, ["string", "field"]):
+                return f"`in` argument {x} must be a table.column pair or a string"
+            if arg["type"] == "field":
+                return check_table_column(table_details, "in", x, arg)
+            x += 1
+
+    elif funct_name == "not":
+        # not(expr, expr, ...)
+        x = 1
+        for arg in args:
+            err = check_expression(config, "any", x, arg)
+            if err:
+                return err
+            x += 1
+
+    elif funct_name == "sub":
+        # sub(regex, expr)
+        if len(args) != 2:
+            return "`sub` must have exactly two arguments"
+        if not is_type(args[0], ["regex"]):
+            return "`sub` argument 1 must be a regex pattern"
+        flag_str = args[0]["flags"]
+        if not re.match(r"[agix]+", flag_str):
+            return "`sub` regex flag(s) must be one or more of: a, g, i, or x"
+
+        # second value must be a valid function or datatype
+        err = check_expression(config, "sub", 2, args[1])
+        if err:
+            return err
+
+    elif funct_name == "list":
+        # list(split, expr)
+        if len(args) != 2:
+            # must have exactly two values
+            return "`list` must have exactly two arguments"
+        if not is_type(args[0], ["string"]):
+            return "`list` argument 1 must be a string"
+
+        # second value must be a valid function or datatype
+        err = check_expression(config, "list", 2, args[1])
+        if err:
+            return err
+
+    elif funct_name == "lookup":
+        # lookup(table, column, column)
+        if len(args) != 3:
+            return "`lookup` must have exactly three arguments"
+        if not is_type(args[0], ["string"]):
+            return "`lookup` argument 1 must be a table name"
+        table = args[0]["value"]
+        if table not in table_details:
+            return f"`lookup` argument 1 table name ({table}) must be a table in the inputs"
+        headers = table_details[table]["fields"]
+        x = 1
+        while x < 3:
+            arg = args[x]
+            if not is_type(arg, ["string"]) or arg["value"] not in headers:
+                return f"`lookup` argument {x + 1} must be a column name in '{table}'"
+            x += 1
+
+    elif funct_name == "under":
+        # under(tree, value)
+        if len(args) != 2 and len(args) != 3:
+            # can have two or three args
+            return "`under` must have either two or three arguments"
+        tree_loc = args[0]
+        if not is_type(tree_loc, ["field"]):
+            return f"`under` argument 1 must be a table.column pair"
+
+        tree_name = f'{tree_loc["table"]}.{tree_loc["column"]}'
+        if "trees" not in config:
+            return f"a `tree` for {tree_name} must be defined in order to use `under`"
+        trees = config["trees"]
+
+        if tree_name not in trees:
+            # tree must have already been defined
+            return f"`under` argument 1 '{tree_name}' must be defined as a tree in 'field'"
+        if not is_type(args[1], ["string"]):
+            # second value must be a string
+            return "`under` argument 2 must be a string"
+        top_level = args[1]["value"]
+
+        if len(args) == 3:
+            if not is_type(args[2], ["named_arg"]):
+                return "if provided, `under` argument 3 must be `direct=bool`"
+            if args[2]["name"] != "direct":
+                return "`under` only accepts named argument `direct`"
+            if args[2]["value"].lower() not in ["true", "false"]:
+                return "in `under` argument 3, the value of `direct=` must be true or false"
+
+        tree = trees[tree_name]
+        tree_values = list(tree.keys())
+        tree_values.extend(list(itertools.chain.from_iterable(tree.values())))
+        if top_level not in tree_values:
+            # second value must exist in tree
+            return f"`under` argument 2 ({top_level}) must exist in tree {tree_name}"
+
+    return None
+
+
+def check_table_column(table_details, fn_name, arg_pos, arg):
+    """Validate a table.column arg pair.
+
+    :param table_details: dictionary of table name -> details
+    :param fn_name: name of function to validate
+    :param arg_pos: position of argument in function
+    :param arg: argument dict
+    :return: True if valid False if not, error message on False
+    """
+    table_name = arg["table"]
+    column_name = arg["column"]
+    if table_name not in table_details:
+        return f"`{fn_name}` argument {arg_pos} must use a valid table ({table_name} not in inputs)"
+    if column_name not in table_details[table_name]["fields"]:
+        return (
+            f"`{fn_name}` argument {arg_pos} must use a field from {table_name} "
+            f"('{column_name}' not in fields)"
+        )
+    return None
+
+
+def get_tree_options(tree_function):
+    """Validate a 'tree' field type and return the options from the args.
+
+    :param tree_function: the parsed field type (tree function)
+    :return: options & error message (on failure)
+    """
+    args = tree_function["args"]
+    if 1 > len(args) > 3:
+        return None, "the `tree` function must have between one and three arguments"
+
+    # first arg is column
+    child_column = args[0]
+    if not is_type(child_column, ["string"]):
+        return None, "the first argument of the `tree` function must be a column name"
+
+    # Parse the rest of the args
+    add_tree_name = None
+    split_char = None
+    if args:
+        x = 1
+        while x < len(args):
+            arg = args[x]
+            if "name" in arg and arg["name"] == "split":
+                split_char = arg["value"]
+            elif "table" in arg:
+                add_tree_name = f'{arg["table"]}.{arg["column"]}'
+            else:
+                return None, f"`tree` argument {x + 1} must be table.column pair or split=CHAR"
+            x += 1
+    return (
+        {
+            "child_column": child_column["value"],
+            "add_tree_name": add_tree_name,
+            "split_char": split_char,
+        },
+        None,
+    )
+
+
 def is_type(arg, types):
     """Validate that an arg is one of the given types.
 
@@ -614,224 +893,7 @@ def is_type(arg, types):
     return False
 
 
-def validate_expression(config, funct_name, pos, arg):
-    """Validate that an argument is a function or datatype.
-
-    :param config: valve config dictionary
-    :param funct_name: name of function currently being validated
-    :param pos: position of this argument
-    :param arg: argument to validate
-    :return: True on success False on error, error message on error
-    """
-    if not is_type(arg, ["string", "function"]):
-        return False, f"`{funct_name}` argument {pos} ({arg}) must be a valid datatype or function"
-    if arg["type"] == "string":
-        datatypes = config["datatypes"]
-        dt_name = arg["value"]
-        if dt_name not in datatypes:
-            return (
-                False,
-                f"`{funct_name}` argument {pos} ({dt_name}) must be a defined datatype",
-            )
-    else:
-        success, err = validate_function(config, arg)
-        if not success:
-            return (
-                False,
-                f"`{funct_name}` argument {pos} must be a valid datatype or function: " + err,
-            )
-    return True, None
-
-
-def validate_function(config, function):
-    """Validate a function.
-
-    :param config: valve config dictionary
-    :param function: parsed function as dictionary
-    :return: True on success False on error, error message on error
-    """
-    errors = []
-    functions = config["functions"]
-    funct_name = function["name"]
-    # Add tree & distinct to functions (resolved at top-level)
-    allowed_funct_names = list(functions.keys()) + ["tree"]
-    if funct_name not in allowed_funct_names:
-        return (
-            False,
-            f"function name ({funct_name}) must be one of: " + ",".join(allowed_funct_names),
-        )
-
-    if funct_name not in builtin_functions.keys():
-        # No validation for args to custom functions
-        return True, None
-
-    table_details = config["table_details"]
-
-    # Special validation for each builtin function
-    args = function["args"]
-    if funct_name == "any":
-        # any(expr, expr, ...)
-        x = 1
-        for arg in args:
-            success, err = validate_expression(config, "any", x, arg)
-            if not success:
-                return False, err
-            x += 1
-
-    elif funct_name == "CURIE":
-        # CURIE(table.column)
-        x = 1
-        for arg in args:
-            if not is_type(arg, ["string", "field"]):
-                return False, f"`CURIE` argument {x} must be a table.column pair or a string"
-            if arg["type"] == "field":
-                success, err = validate_table_column(table_details, "CURIE", x, arg)
-                if not success:
-                    return False, err
-            x += 1
-
-    elif funct_name == "distinct":
-        # distinct(expr, [table-column, ...])
-        success, err = validate_expression(config, "distinct", 1, args[0])
-        if not success:
-            return False, err
-        if len(args) > 1:
-            arg_idx = 2
-            for arg in args[1:]:
-                if not is_type(arg, ["field"]):
-                    return False, f"`distinct` argument {arg_idx} must be a table.column pair"
-                arg_idx += 1
-        return True, None
-
-    elif funct_name == "in":
-        # in("x", "y", "z", ...)
-        x = 1
-        for arg in args:
-            if not is_type(arg, ["string", "field"]):
-                return False, f"`in` argument {x} must be a table.column pair or a string"
-            if arg["type"] == "field":
-                success, err = validate_table_column(table_details, "in", x, arg)
-                if not success:
-                    return False, err
-            x += 1
-
-    elif funct_name == "not":
-        # not(expr, expr, ...)
-        x = 1
-        for arg in args:
-            success, err = validate_expression(config, "any", x, arg)
-            if not success:
-                return False, err
-            x += 1
-
-    elif funct_name == "sub":
-        # sub(regex, expr)
-        if len(args) != 2:
-            return False, "`sub` must have exactly two arguments"
-        if not is_type(args[0], ["regex"]):
-            return False, "`sub` argument 1 must be a regex pattern"
-        flag_str = args[0]["flags"]
-        if not re.match(r"[agix]+", flag_str):
-            return False, "`sub` regex flag(s) must be one or more of: a, g, i, or x"
-
-        # second value must be a valid function or datatype
-        success, err = validate_expression(config, "sub", 2, args[1])
-        if not success:
-            return False, err
-
-    elif funct_name == "list":
-        # list(split, expr)
-        if len(args) != 2:
-            # must have exactly two values
-            return False, "`list` must have exactly two arguments"
-        if not is_type(args[0], ["string"]):
-            return False, "`list` argument 1 must be a string"
-
-        # second value must be a valid function or datatype
-        success, err = validate_expression(config, "list", 2, args[1])
-        if not success:
-            return False, err
-
-    elif funct_name == "lookup":
-        # lookup(table, column, column)
-        if len(args) != 3:
-            return False, "`lookup` must have exactly three arguments"
-        if not is_type(args[0], ["string"]):
-            return False, "`lookup` argument 1 must be a table name"
-        table = args[0]["value"]
-        if table not in table_details:
-            return False, f"`lookup` argument 1 table name ({table}) must be a table in the inputs"
-        headers = table_details[table]["fields"]
-        x = 1
-        while x < 3:
-            arg = args[x]
-            if not is_type(arg, ["string"]) or arg["value"] not in headers:
-                return False, f"`lookup` argument {x + 1} must be a column name in '{table}'"
-            x += 1
-
-    elif funct_name == "under":
-        # under(tree, value)
-        if len(args) != 2 and len(args) != 3:
-            # can have two or three args
-            return False, "`under` must have either two or three arguments"
-        tree_loc = args[0]
-        if not is_type(tree_loc, ["field"]):
-            return False, f"`under` argument 1 must be a table.column pair"
-
-        tree_name = f'{tree_loc["table"]}.{tree_loc["column"]}'
-        if "trees" not in config:
-            return False, f"a `tree` for {tree_name} must be defined in order to use `under`"
-        trees = config["trees"]
-
-        if tree_name not in trees:
-            # tree must have already been defined
-            return False, f"`under` argument 1 '{tree_name}' must be defined as a tree in 'field'"
-        if not is_type(args[1], ["string"]):
-            # second value must be a string
-            return False, "`under` argument 2 must be a string"
-        top_level = args[1]["value"]
-
-        if len(args) == 3:
-            if not is_type(args[2], ["named_arg"]):
-                return False, "if provided, `under` argument 3 must be `direct=bool`"
-            if args[2]["name"] != "direct":
-                return False, "`under` only accepts named argument `direct`"
-            if args[2]["value"].lower() not in ["true", "false"]:
-                return False, "in `under` argument 3, the value of `direct=` must be true or false"
-
-        tree = trees[tree_name]
-        tree_values = list(tree.keys())
-        tree_values.extend(list(itertools.chain.from_iterable(tree.values())))
-        if top_level not in tree_values:
-            # second value must exist in tree
-            return False, f"`under` argument 2 ({top_level}) must exist in tree {tree_name}"
-
-    return function, errors
-
-
-def validate_condition(config, parsed_condition):
-    """Validate a condition.
-
-    :param config: valve config dictionary
-    :param parsed_condition: parsed condition to validate
-    :return: None on error or parsed condition on success, error message
-    """
-    datatypes = config["datatypes"]
-    cond_type = parsed_condition["type"]
-
-    if cond_type == "string":
-        dt = parsed_condition["value"]
-        if dt not in datatypes.keys():
-            return False, f"datatype '{dt}' must be defined in the datatype table"
-    elif cond_type == "function":
-        return validate_function(config, parsed_condition)
-    else:
-        raise Exception("Unknown condition type: " + cond_type)
-
-    return True, None
-
-
-def validate_level(level):
+def level_is_valid(level):
     """Validate a level entry. The level must be one of (case-insensitive): error, warn, or info.
 
     :param level: logging level
@@ -844,87 +906,46 @@ def validate_level(level):
     return True
 
 
-def validate_table_column(table_details, fn_name, arg_pos, arg):
-    """Validate a table.column arg pair.
-
-    :param table_details: dictionary of table name -> details
-    :param fn_name: name of function to validate
-    :param arg_pos: position of argument in function
-    :param arg: argument dict
-    :return: True if valid False if not, error message on False
-    """
-    table_name = arg["table"]
-    column_name = arg["column"]
-    if table_name not in table_details:
-        return (
-            False,
-            f"`{fn_name}` argument {arg_pos} must use a valid table name "
-            f"({table_name} is not in inputs)",
-        )
-    if column_name not in table_details[table_name]["fields"]:
-        return (
-            False,
-            f"`{fn_name}` argument {arg_pos} must use a field name from {table_name} "
-            f"('{column_name}' is not in fields)",
-        )
-    return True, None
-
-
-def validate_tree_type(config, fn_row_idx, table_name, parent_column, tree_function, row_start=2):
-    """Validate a 'tree' field type and build the tree.
-
-    :param config: dict of VALVE config
-    :param table_name: name of table to build tree from
-    :param parent_column: name of column in table to build tree from
-    :param fn_row_idx: row that 'tree' appears in from field
-    :param tree_function: the parsed field type (tree function)
-    :param row_start: row number that contents to validate start on
-    :return: tree dictionary or None on error, list of errors
-    """
-    errors = []
-    args = tree_function["args"]
-    if 1 > len(args) > 3:
-        errors.append({"message": "the `tree` function must have between one and three arguments"})
-        return None, errors
-
-    # first arg is column
-    child_column = args[0]
-    if not is_type(child_column, ["string"]):
-        errors.append(
-            {"message": "the first argument of the `tree` function must be a column name"}
-        )
-        return None, errors
-
-    # Parse the rest of the args
-    add_tree_name = None
-    split_char = None
-    if args:
-        x = 1
-        while x < len(args):
-            arg = args[x]
-            if "name" in arg and arg["name"] == "split":
-                split_char = arg["value"]
-            elif "table" in arg:
-                add_tree_name = f'{arg["table"]}.{arg["column"]}'
-            else:
-                errors.append(
-                    {"message": f"`tree` arguments must be table.column pair or split=CHAR"}
-                )
-                return None, errors
-            x += 1
-    return build_tree(
-        config,
-        fn_row_idx,
-        table_name,
-        parent_column,
-        child_column["value"],
-        row_start=row_start,
-        add_tree_name=add_tree_name,
-        split_char=split_char,
-    )
-
-
 # ---- CONDITION VALIDATION ----
+
+
+def check_value(config, condition, table, column, row_idx, value):
+    """Determine if the value meets the condition.
+
+    :param config: valve config dictionary
+    :param condition: parsed condition to check (as dict)
+    :param table: table name
+    :param column: column name
+    :param row_idx: row number from values
+    :param value: value to check
+    :return: List of messages (empty on success)
+    """
+    condition_type = condition["type"]
+    datatypes = config["datatypes"]
+    if condition_type == "string":
+        datatype = condition["value"]
+        # Check if condition is met, potentially get a replacement
+        value_meets_condition, replace = is_datatype(datatypes, datatype, value)
+        if value_meets_condition is False:
+            unparsed_condition = parsed_to_str(condition)
+            row_start = config["row_start"]
+            col_idx = config["table_details"][table]["fields"].index(column)
+            return [
+                create_message(
+                    table,
+                    col_idx + 1,
+                    row_idx + row_start,
+                    f"'{value}' must be of datatype '{unparsed_condition}'",
+                )
+            ]
+
+    elif condition_type == "function":
+        return run_function(config, condition, table, column, row_idx, value)
+
+    else:
+        # This should be prevented in validate_condition
+        raise Exception("unknown condition type: " + condition_type)
+    return []
 
 
 def is_datatype(datatypes, datatype, value):
@@ -953,46 +974,6 @@ def is_datatype(datatypes, datatype, value):
     return True, None
 
 
-def check_condition(config, condition, table, column, row_idx, value):
-    """Determine if the value meets the condition.
-
-    :param config: valve config dictionary
-    :param condition: parsed condition to check (as dict)
-    :param table: table name
-    :param column: column name
-    :param row_idx: row number from values
-    :param value: value to check
-    :return: List of messages (empty on success)
-    """
-    condition_type = condition["type"]
-    datatypes = config["datatypes"]
-    if condition_type == "string":
-        datatype = condition["value"]
-        # Check if condition is met, potentially get a replacement
-        value_meets_condition, replace = is_datatype(datatypes, datatype, value)
-        if value_meets_condition is False:
-            unparsed_condition = parsed_to_str(condition)
-            row_start = config["row_start"]
-            col_idx = config["table_details"][table]["fields"].index(column)
-            return [
-                {
-                    "table": table,
-                    "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
-                    "message": f"'{value}' must be of datatype '{unparsed_condition}'",
-                }
-            ]
-
-    elif condition_type == "function":
-        errs = run_function(config, condition, table, column, row_idx, value)
-        if errs:
-            return errs
-
-    else:
-        # This should be prevented in validate_condition
-        raise Exception("unknown condition type: " + condition_type)
-    return []
-
-
 def run_function(config, function, table, column, row_idx, value):
     """Run a VALVE function for the provided value.
 
@@ -1007,7 +988,6 @@ def run_function(config, function, table, column, row_idx, value):
     functions = config["functions"]
     funct_name = function["name"]
     args = function["args"]
-    row_start = config["row_start"]
     if funct_name not in functions:
         raise Exception("Unknown function: " + funct_name)
     fn = functions[funct_name]
@@ -1033,7 +1013,7 @@ def any_of(config, args, table, column, row_idx, value):
     """
     conditions = []
     for arg in args:
-        messages = check_condition(config, arg, table, column, row_idx, value)
+        messages = check_value(config, arg, table, column, row_idx, value)
         if not messages:
             # As long as one is met, this passes
             return []
@@ -1042,11 +1022,12 @@ def any_of(config, args, table, column, row_idx, value):
     row_start = config["row_start"]
     col_idx = config["table_details"][table]["fields"].index(column)
     return [
-        {
-            "table": table,
-            "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
-            "message": f"'{value}' must meet one of: " + ", ".join(conditions),
-        }
+        create_message(
+            table,
+            col_idx + 1,
+            row_idx + row_start,
+            f"'{value}' must meet one of: " + ", ".join(conditions),
+        )
     ]
 
 
@@ -1077,20 +1058,17 @@ def CURIE(config, args, table, column, row_idx, value):
             prefixes.append(row[column_name])
     if ":" not in value:
         return [
-            {
-                "table": table,
-                "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
-                "message": f"'{value}' must be a CURIE",
-            }
+            create_message(table, col_idx + 1, row_idx + row_start, f"'{value}' must be a CURIE")
         ]
     value_prefix = value.split(":")[0]
     if value_prefix not in prefixes:
         return [
-            {
-                "table": table,
-                "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
-                "message": f"prefix '{value_prefix}' must be one of: " + ", ".join(prefixes),
-            }
+            create_message(
+                table,
+                col_idx + 1,
+                row_idx + row_start,
+                f"prefix '{value_prefix}' must be one of: " + ", ".join(prefixes),
+            )
         ]
     return []
 
@@ -1140,12 +1118,12 @@ def distinct(config, args, table, column, row_idx, value):
         row_start = config["row_start"]
         col_idx = config["table_details"][table]["fields"].index(column)
         return [
-            {
-                "table": table,
-                "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
-                "message": f"'{value}' must be distinct with value(s) at: "
-                + ", ".join(duplicate_locs),
-            }
+            create_message(
+                table,
+                col_idx + 1,
+                row_idx + row_start,
+                f"'{value}' must be distinct with value(s) at: " + ", ".join(duplicate_locs),
+            )
         ]
     return []
 
@@ -1180,11 +1158,9 @@ def in_set(config, args, table, column, row_idx, value):
     row_start = config["row_start"]
     col_idx = table_details[table]["fields"].index(column)
     return [
-        {
-            "table": table,
-            "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
-            "message": f"'{value}' must be in: " + ", ".join(allowed),
-        }
+        create_message(
+            table, col_idx + 1, row_idx + row_start, f"'{value}' must be in: " + ", ".join(allowed),
+        )
     ]
 
 
@@ -1200,7 +1176,7 @@ def not_any_of(config, args, table, column, row_idx, value):
     :return: List of messages (empty on success)
     """
     for arg in args:
-        messages = check_condition(config, arg, table, column, row_idx, value)
+        messages = check_value(config, arg, table, column, row_idx, value)
         if not messages:
             # If any condition *is* met (no errors), this fails
             row_start = config["row_start"]
@@ -1209,13 +1185,7 @@ def not_any_of(config, args, table, column, row_idx, value):
             msg = f"'{value}' must not be '{unparsed}'"
             if unparsed == "blank":
                 msg = f"value must not be blank"
-            return [
-                {
-                    "table": table,
-                    "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
-                    "message": msg,
-                }
-            ]
+            return [create_message(table, col_idx + 1, row_idx + row_start, msg)]
     return []
 
 
@@ -1268,11 +1238,12 @@ def substitute(config, args, table, column, row_idx, value):
             row_start = config["row_start"]
             col_idx = config["table_details"][table]["fields"].index(column)
             return [
-                {
-                    "table": table,
-                    "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
-                    "message": f"substituted value '{value}' must be of datatype {datatype}",
-                }
+                create_message(
+                    table,
+                    col_idx + 1,
+                    row_idx + row_start,
+                    f"substituted value '{value}' must be of datatype {datatype}",
+                )
             ]
         return []
     else:
@@ -1310,13 +1281,7 @@ def for_each_list(config, args, table, column, row_idx, value):
     if errs:
         row_start = config["row_start"]
         col_idx = config["table_details"][table]["fields"].index(column)
-        return [
-            {
-                "table": table,
-                "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
-                "message": "\n".join(errs),
-            }
-        ]
+        return [create_message(table, col_idx + 1, row_idx + row_start, "\n".join(errs))]
     return []
 
 
@@ -1356,23 +1321,25 @@ def lookup(config, args, table, column, row_idx, value):
     for row in table_details[search_table]["rows"]:
         maybe_value = row[search_column]
         if maybe_value == lookup_value:
-            check_value = row[return_column]
-            if value != check_value:
+            expected = row[return_column]
+            if value != expected:
                 return [
-                    {
-                        "table": table,
-                        "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
-                        "message": f"'{value}' must be '{check_value}'",
-                        "suggestion": check_value,
-                    }
+                    create_message(
+                        table,
+                        col_idx + 1,
+                        row_idx + row_start,
+                        f"'{value}' must be '{expected}'",
+                        suggestion=expected,
+                    )
                 ]
             return []
     return [
-        {
-            "table": table,
-            "cell": idx_to_a1(row_idx + row_start, col_idx + 1),
-            "message": f"'{value}' must present in {search_table}.{return_column}",
-        }
+        create_message(
+            table,
+            col_idx + 1,
+            row_idx + row_start,
+            f"'{value}' must present in {search_table}.{return_column}",
+        )
     ]
 
 
@@ -1410,7 +1377,7 @@ def under(config, args, table, column, row_idx, value):
         msg = f"'{value}' must be a direct subclass of '{ancestor}' from {tree_name}"
     row_start = config["row_start"]
     col_idx = config["table_details"][table]["fields"].index(column)
-    return [{"table": table, "cell": idx_to_a1(row_idx + row_start, col_idx + 1), "message": msg}]
+    return [create_message(table, col_idx + 1, row_idx + row_start, msg)]
 
 
 # ---- VALIDATION ----
@@ -1478,8 +1445,6 @@ def validate_table(config, table):
     errors = []
     table_name = os.path.splitext(os.path.basename(table))[0]
     table_details = config["table_details"]
-    table_headers = table_details[table_name]["fields"]
-    row_start = config["row_start"]
 
     fields = config["table_fields"].get(table, {})
     fields.update(config.get("*", {}))
@@ -1498,7 +1463,7 @@ def validate_table(config, table):
                 # This will be validated based on the given datatypes
                 parsed_type = fields[field]["parsed"]
                 # all values in this field must match the type
-                messages = check_condition(config, parsed_type, table_name, field, row_idx, value)
+                messages = check_value(config, parsed_type, table_name, field, row_idx, value)
                 if messages:
                     field_id = fields[field]["field ID"]
                     for m in messages:
@@ -1512,7 +1477,7 @@ def validate_table(config, table):
                     when_condition = rule["when_condition"]
                     # Run meets_condition without logging
                     # as the then-cond check is only run if the value matches the type
-                    messages = check_condition(
+                    messages = check_value(
                         config, when_condition, table_name, field, row_idx, value
                     )
                     if not messages:
@@ -1520,14 +1485,14 @@ def validate_table(config, table):
                         then_column = rule["column"]
 
                         # Retrieve the "then" value to check if it meets the "then condition"
-                        check_value = row[then_column]
-                        messages = check_condition(
+                        then_value = row[then_column]
+                        messages = check_value(
                             config,
                             rule["then_condition"],
                             table_name,
                             then_column,
                             row_idx,
-                            check_value,
+                            then_value,
                         )
                         if messages:
                             for m in messages:
@@ -1635,11 +1600,18 @@ def get_config_from_tables(paths, row_start=2, functions=None):
     datatypes, add_errors = read_datatype_table(datatype_table)
     setup_errors.extend(add_errors)
 
-    config = {"table_details": table_details, "datatypes": datatypes, "functions": functions}
+    # Init config dict
+    config = {
+        "table_details": table_details,
+        "datatypes": datatypes,
+        "functions": functions,
+        "row_start": row_start,
+    }
 
-    table_fields, trees, add_errors = read_field_table(config, field_table, row_start=row_start)
+    table_fields, trees, add_errors = read_field_table(config, field_table)
     setup_errors.extend(add_errors)
 
+    # Trees may be used in rules, add to config
     config["trees"] = trees
 
     table_rules = {}
@@ -1647,13 +1619,9 @@ def get_config_from_tables(paths, row_start=2, functions=None):
         table_rules, add_errors = read_rule_table(config, rule_table)
         setup_errors.extend(add_errors)
 
+    # Add the rest of the configuration to dict
     config.update(
-        {
-            "table_fields": table_fields,
-            "table_rules": table_rules,
-            "errors": setup_errors,
-            "row_start": row_start,
-        }
+        {"table_fields": table_fields, "table_rules": table_rules, "errors": setup_errors}
     )
     return config
 
