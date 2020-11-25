@@ -375,7 +375,7 @@ def read_field_table(config, field_table):
                                 "kill": True,
                             }
                         )
-                        return table_fields, trees, errors
+                        continue
                     tree, errs = build_tree(
                         config,
                         idx,
