@@ -34,3 +34,19 @@ valve/parse.py: build/valve_grammar.py
 	perl -pe 's/\[\^\/\]/[^\\\/]/g' | \
 	sed -e "s/parse(text))/parse(text)).to_dict()/g" > $@
 	black --line-length 100 $@
+
+
+PYTHON_FILES := valve tests
+
+.PHONY: test
+test:
+	pytest tests
+
+.PHONY: lint
+lint:
+	flake8 --max-line-length 100 --ignore E203,W503 $(PYTHON_FILES)
+	black --line-length 100 --quiet --check $(PYTHON_FILES)
+
+.PHONY: format
+format:
+	black --line-length 100 $(PYTHON_FILES)

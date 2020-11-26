@@ -544,7 +544,13 @@ def read_rule_table(config, rule_table):
 
 
 def build_tree(
-    config, fn_row_idx, table_name, parent_column, child_column, add_tree_name=None, split_char="|",
+    config,
+    fn_row_idx,
+    table_name,
+    parent_column,
+    child_column,
+    add_tree_name=None,
+    split_char="|",
 ):
     """Build a hierarchy for the `tree` function while validating the values.
 
