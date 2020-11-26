@@ -57,19 +57,13 @@ def build_datatype_ancestors(datatypes, datatype):
     return ancestors
 
 
-def create_message(table, col_num, row_num, message, suggestion=None):
-    """Create a validation message.
-
-    :param table: table name to display message
-    :param col_num: column number in sheet to display message
-    :param row_num: row number in sheet to display message
-    :param message: string message
-    :param suggestion: string suggestion for replacement
-    :return: message dictionary
-    """
+def error(config, table, column, row_idx, message, level="ERROR", suggestion=None):
+    row_start = config["row_start"]
+    col_idx = config["table_details"][table]["fields"].index(column)
     d = {
         "table": table,
-        "cell": idx_to_a1(row_num, col_num),
+        "cell": idx_to_a1(row_start + row_idx, col_idx + 1),
+        "level": level,
         "message": message,
     }
     if suggestion:
@@ -928,16 +922,8 @@ def check_value(config, condition, table, column, row_idx, value):
         value_meets_condition, replace = is_datatype(datatypes, datatype, value)
         if value_meets_condition is False:
             unparsed_condition = parsed_to_str(condition)
-            row_start = config["row_start"]
-            col_idx = config["table_details"][table]["fields"].index(column)
-            return [
-                create_message(
-                    table,
-                    col_idx + 1,
-                    row_idx + row_start,
-                    f"'{value}' must be of datatype '{unparsed_condition}'",
-                )
-            ]
+            message = f"'{value}' must be of datatype '{unparsed_condition}'"
+            return [error(config, table, column, row_idx, message)]
 
     elif condition_type == "function":
         return run_function(config, condition, table, column, row_idx, value)
@@ -1019,16 +1005,8 @@ def any_of(config, args, table, column, row_idx, value):
             return []
         conditions.append(parsed_to_str(arg))
     # If we get here, no condition was met
-    row_start = config["row_start"]
-    col_idx = config["table_details"][table]["fields"].index(column)
-    return [
-        create_message(
-            table,
-            col_idx + 1,
-            row_idx + row_start,
-            f"'{value}' must meet one of: " + ", ".join(conditions),
-        )
-    ]
+    message = f"'{value}' must meet one of: " + ", ".join(conditions)
+    return [error(config, table, column, row_idx, message)]
 
 
 def CURIE(config, args, table, column, row_idx, value):
@@ -1044,8 +1022,6 @@ def CURIE(config, args, table, column, row_idx, value):
     :return: List of messages (empty on success)
     """
     table_details = config["table_details"]
-    row_start = config["row_start"]
-    col_idx = table_details[table]["fields"].index(column)
     prefixes = []
     # Get prefixes from args - either strings or table.column pairs
     for arg in args:
@@ -1057,19 +1033,12 @@ def CURIE(config, args, table, column, row_idx, value):
         for row in table_details[table_name]["rows"]:
             prefixes.append(row[column_name])
     if ":" not in value:
-        return [
-            create_message(table, col_idx + 1, row_idx + row_start, f"'{value}' must be a CURIE")
-        ]
+        message = f"'{value}' must be a CURIE"
+        return [error(config, table, column, row_idx, message)]
     value_prefix = value.split(":")[0]
     if value_prefix not in prefixes:
-        return [
-            create_message(
-                table,
-                col_idx + 1,
-                row_idx + row_start,
-                f"prefix '{value_prefix}' must be one of: " + ", ".join(prefixes),
-            )
-        ]
+        message = f"prefix '{value_prefix}' must be one of: " + ", ".join(prefixes)
+        return [error(config, table, column, row_idx, message)]
     return []
 
 
@@ -1115,16 +1084,8 @@ def distinct(config, args, table, column, row_idx, value):
 
     # Create the error messages
     if duplicate_locs:
-        row_start = config["row_start"]
-        col_idx = config["table_details"][table]["fields"].index(column)
-        return [
-            create_message(
-                table,
-                col_idx + 1,
-                row_idx + row_start,
-                f"'{value}' must be distinct with value(s) at: " + ", ".join(duplicate_locs),
-            )
-        ]
+        message = f"'{value}' must be distinct with value(s) at: " + ", ".join(duplicate_locs)
+        return [error(config, table, column, row_idx, message)]
     return []
 
 
@@ -1155,13 +1116,8 @@ def in_set(config, args, table, column, row_idx, value):
             if value in allowed_values:
                 return []
             allowed.append(f"{table_name}.{column_name}")
-    row_start = config["row_start"]
-    col_idx = table_details[table]["fields"].index(column)
-    return [
-        create_message(
-            table, col_idx + 1, row_idx + row_start, f"'{value}' must be in: " + ", ".join(allowed),
-        )
-    ]
+    message = f"'{value}' must be in: " + ", ".join(allowed)
+    return [error(config, table, column, row_idx, message)]
 
 
 def not_any_of(config, args, table, column, row_idx, value):
@@ -1179,13 +1135,11 @@ def not_any_of(config, args, table, column, row_idx, value):
         messages = check_value(config, arg, table, column, row_idx, value)
         if not messages:
             # If any condition *is* met (no errors), this fails
-            row_start = config["row_start"]
-            col_idx = config["table_details"][table]["fields"].index(column)
             unparsed = parsed_to_str(arg)
-            msg = f"'{value}' must not be '{unparsed}'"
+            message = f"'{value}' must not be '{unparsed}'"
             if unparsed == "blank":
-                msg = f"value must not be blank"
-            return [create_message(table, col_idx + 1, row_idx + row_start, msg)]
+                message = f"value must not be blank"
+            return [error(config, table, column, row_idx, message)]
     return []
 
 
@@ -1235,16 +1189,8 @@ def substitute(config, args, table, column, row_idx, value):
         datatype = subfunc["value"]
         value_is_datatype = is_datatype(datatypes, datatype, value)[0]
         if not value_is_datatype:
-            row_start = config["row_start"]
-            col_idx = config["table_details"][table]["fields"].index(column)
-            return [
-                create_message(
-                    table,
-                    col_idx + 1,
-                    row_idx + row_start,
-                    f"substituted value '{value}' must be of datatype {datatype}",
-                )
-            ]
+            message = f"substituted value '{value}' must be of datatype {datatype}"
+            return [error(config, table, column, row_idx, message)]
         return []
     else:
         return run_function(config, subfunc, table, column, row_idx, value)
@@ -1279,9 +1225,8 @@ def for_each_list(config, args, table, column, row_idx, value):
             if err:
                 errs.append(err)
     if errs:
-        row_start = config["row_start"]
-        col_idx = config["table_details"][table]["fields"].index(column)
-        return [create_message(table, col_idx + 1, row_idx + row_start, "\n".join(errs))]
+        message = "\n".join(errs)
+        return [error(config, table, column, row_idx, message)]
     return []
 
 
@@ -1301,7 +1246,6 @@ def lookup(config, args, table, column, row_idx, value):
     :return: List of messages (empty on success)
     """
     table_details = config["table_details"]
-    row_start = config["row_start"]
     col_idx = table_details[table]["fields"].index(column)
     table_rules = config["table_rules"][table]
     lookup_value = None
@@ -1323,24 +1267,11 @@ def lookup(config, args, table, column, row_idx, value):
         if maybe_value == lookup_value:
             expected = row[return_column]
             if value != expected:
-                return [
-                    create_message(
-                        table,
-                        col_idx + 1,
-                        row_idx + row_start,
-                        f"'{value}' must be '{expected}'",
-                        suggestion=expected,
-                    )
-                ]
+                message = f"'{value}' must be '{expected}'"
+                return [error(config, table, column, row_idx, message, suggestion=expected)]
             return []
-    return [
-        create_message(
-            table,
-            col_idx + 1,
-            row_idx + row_start,
-            f"'{value}' must present in {search_table}.{return_column}",
-        )
-    ]
+    message = f"'{value}' must present in {search_table}.{return_column}"
+    return [error(config, table, column, row_idx, message)]
 
 
 def under(config, args, table, column, row_idx, value):
@@ -1372,12 +1303,10 @@ def under(config, args, table, column, row_idx, value):
     if has_ancestor(tree, ancestor, value, direct=direct):
         return []
 
-    msg = f"'{value}' must be equal to or under '{ancestor}' from {tree_name}"
+    message = f"'{value}' must be equal to or under '{ancestor}' from {tree_name}"
     if direct:
-        msg = f"'{value}' must be a direct subclass of '{ancestor}' from {tree_name}"
-    row_start = config["row_start"]
-    col_idx = config["table_details"][table]["fields"].index(column)
-    return [create_message(table, col_idx + 1, row_idx + row_start, msg)]
+        message = f"'{value}' must be a direct subclass of '{ancestor}' from {tree_name}"
+    return [error(config, table, column, row_idx, message)]
 
 
 # ---- VALIDATION ----
