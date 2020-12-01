@@ -1,6 +1,9 @@
+import copy
 import csv
 import inspect
 import itertools
+import json
+import jsonschema
 import logging
 import os
 import re
@@ -11,9 +14,422 @@ from collections import defaultdict
 from .parse import parse
 
 
-# TODO
-#  - handle numeric datatypes (later)
-#  - eventually be able to pass in an excel file
+with open("valve.json") as f:
+    main_schema = json.load(f)
+del main_schema["type"]
+argument_schema = copy.deepcopy(main_schema)
+argument_schema["items"] = {"$ref": "#/definitions/argument"}
+datatype_schema = copy.deepcopy(main_schema)
+datatype_schema["items"] = {"$ref": "#/definitions/datatype"}
+field_schema = copy.deepcopy(main_schema)
+field_schema["items"] = {"$ref": "#/definitions/field"}
+
+
+# 0. register functions
+# 1. load all tables, error on duplicates, require datatype and field
+# 2. load datatype basics
+# 3. load datatype conditions
+# 4. load field
+# 5. load rule
+# 6. build trees
+# 7. run validation
+
+
+def idx_to_a1(row, col):
+    """Convert a row & column to A1 notation. Adapted from gspread.utils.
+
+    :param row: row index
+    :param col: column index
+    :return: A1 notation of row:column
+    """
+    div = col
+    column_label = ""
+    while div:
+        (div, mod) = divmod(div, 26)
+        if mod == 0:
+            mod = 26
+            div -= 1
+        column_label = chr(mod + 64) + column_label
+    return f"{column_label}{row}"
+
+
+def error(config, table, column, row_idx, message, level="ERROR", suggestion=None):
+    row_start = config["row_start"]
+    col_idx = config["table_details"][table]["fields"].index(column)
+    d = {
+        "table": table,
+        "cell": idx_to_a1(row_start + row_idx, col_idx + 1),
+        "level": level,
+        "message": message,
+    }
+    if suggestion:
+        d["suggestion"] = suggestion
+    return d
+
+
+def parsed_to_str(condition):
+    """Convert a parsed condition back to its original string.
+
+    :param condition: parsed condition to convert
+    :return: string version of condition
+    """
+    cond_type = condition["type"]
+    if cond_type == "string":
+        val = condition["value"]
+        if " " in val:
+            return f'"{val}"'
+        return val
+    if cond_type == "field":
+        table = condition["table"]
+        col = condition["column"]
+        if " " in table:
+            table = f'"{table}"'
+        if " " in col:
+            col = f'"{col}"'
+        return f"{table}.{col}"
+    if cond_type == "named_arg":
+        name = condition["name"]
+        val = condition["value"]
+        if " " in val:
+            val = f'"{val}"'
+        return f"{name}={val}"
+    if cond_type == "regex":
+        pattern = condition["pattern"]
+        flags = condition["flags"]
+        if "replace" in condition:
+            replace = condition["replace"]
+            return f"s/{pattern}/{replace}/{flags}"
+        return f"/{pattern}/{flags}"
+    if cond_type == "function":
+        args = []
+        for arg in condition["args"]:
+            args.append(parsed_to_str(arg))
+        name = condition["name"]
+        args = ", ".join(args)
+        return f"{name}({args})"
+    raise Exception("Unknown condition type: " + cond_type)
+
+
+def check_many_expression_args(config, name, args):
+    if len(args) == 0:
+        return f"'{name}' requires one or more arguments"
+
+
+def check_many_value_args(config, name, args):
+    if len(args) == 0:
+        return f"'{name}' requires one or more arguments"
+    for arg in args:
+        if arg["type"] in ["string", "field"]:
+            pass
+        else:
+            string = arg
+            try:
+                string = parsed_to_str(arg)
+            except:
+                pass
+            return f"invalid argument '{string}' for '{name}'"
+
+
+def check_rows(config, schema, rows):
+    try:
+        jsonschema.validate(rows, schema)
+    except jsonschema.exceptions.ValidationError as err:
+        if err.validator == "required":
+            return None, {
+               "level": "ERROR",
+               "table": table,
+               "message": err.message.replace("property", "column"),
+            }
+        if len(err.path) > 1:
+            row_idx, column = list(err.path)[0:2]
+            return [error(config, table, column, row_idx, err.message)]
+        return [err.message]
+    return []
+
+
+def check_function(config, parsed):
+    condition = parsed_to_str(parsed)
+
+    name = parsed["name"]
+    if name not in config["functions"]:
+        return f"unrecognized function '{name}'"
+    function = config["functions"][name]
+
+    try:
+        jsonschema.validate(parsed["args"], argument_schema)
+    except jsonschema.exceptions.ValidationError as err:
+        message = err.message
+        if err.parent and err.parent.validator == "oneOf":
+            position = err.parent.path[0] + 1
+            instance = err.parent.instance
+            try:
+                instance = parsed_to_str(instance)
+            except:
+                pass
+            message = f"argument {position} '{instance}' is not one of the allowed types for '{function['usage']}' in '{condition}'"
+        return message
+    for arg in parsed["args"]:
+        if arg["type"] == "function":
+            err = check_function(config, arg)
+            if err:
+                return err
+        elif arg["type"] == "field":
+            table = arg["table"]
+            if table not in config["table_details"]:
+                return f"unrecognized table '{table}'"
+            column = arg["column"]
+            if column not in config["table_details"][table]["fields"]:
+                return f"unrecognized column '{column}' in table '{table}'"
+    if "check" in function:
+        return function["check"](config, name, parsed["args"])
+
+
+def check_condition(config, condition):
+    parsed = parse(condition)
+    if parsed["type"] == "function":
+        err = check_function(config, parsed)
+        if err:
+            return err
+    elif parsed["type"] == "string":
+        name = parsed["value"]
+        if name not in config["datatypes"]:
+            return f"unrecognized datatype '{name}'"
+    else: 
+        return f"invalid condition '{condition}'"
+
+
+def build_condition(config, condition):
+    err = check_condition(config, condition)
+    if err:
+        raise Exception(err)
+    return parse(condition)
+
+
+def find_datatype_ancestors(datatypes, datatype):
+    """Recursively build a list of ancestor datatypes for a given datatype.
+
+    :param datatypes: map of datatype name -> details
+    :param datatype: datatype to get ancestors of
+    :return: list of ancestor datatypes
+    """
+    ancestors = []
+    parent = datatypes[datatype].get("parent")
+    if parent:
+        ancestors.append(parent)
+        ancestors.extend(find_datatype_ancestors(datatypes, parent))
+    return ancestors
+
+
+def validate_datatype(config, condition, table, column, row_idx, value):
+    """Determine if the value is of datatype.
+
+    :param datatypes: dictionary of datatype names -> details
+    :param datatype: datatype that value should be
+    :param value: value to validate
+    :return: True if value is datatype or False otherwise, optional replacement when False
+    """
+    # First build a list of ancestors
+    datatypes = config["datatypes"]
+    name = condition["value"]
+    ancestors = find_datatype_ancestors(datatypes, name)
+    ancestors.insert(0, name)
+    for name in ancestors:
+        datatype = datatypes[name]
+        description = datatype.get("description", name)
+        level = datatype.get("level", "ERROR")
+        if "match" in datatype:
+            if not datatype["match"].match(value):
+                suggestion = None
+                if "replace" in datatype:
+                    suggestion = datatype["replace"](value)
+                return [error(config, table, column, row_idx, description, level=level, suggestion=suggestion)]
+    return []
+
+
+def validate_any(config, args, table, column, row_idx, value):
+    """Method for the VALVE 'any' function.
+
+    :param config: valve config dictionary
+    :param args: arguments provided to not
+    :param table: table to run distinct on
+    :param column: column to run distinct on
+    :param row_idx: current row number
+    :param value: value to run any on
+    :return: List of messages (empty on success)
+    """
+    conditions = []
+    for arg in args:
+        messages = validate_condition(config, arg, table, column, row_idx, value)
+        if not messages:
+            # As long as one is met, this passes
+            return []
+        conditions.append(parsed_to_str(arg))
+    # If we get here, no condition was met
+    message = f"'{value}' must meet one of: " + ", ".join(conditions)
+    return [error(config, table, column, row_idx, message)]
+
+
+def validate_in(config, args, table, column, row_idx, value):
+    """Method for the VALVE 'in' function. The value must be one of the arguments.
+
+    :param config: valve config dictionary
+    :param args: arguments provided to in
+    :param table: table name
+    :param column: column name
+    :param row_idx: row number from values
+    :param value: value to run in on
+    :return: List of messages (empty on success)
+    """
+    table_details = config["table_details"]
+    allowed = []
+    for arg in args:
+        if arg["type"] == "string":
+            arg_val = arg["value"]
+            if value == arg_val:
+                return []
+            allowed.append(f'"{arg_val}"')
+        else:
+            table_name = arg["table"]
+            column_name = arg["column"]
+            source_rows = table_details[table_name]["rows"]
+            allowed_values = [x[column_name] for x in source_rows if column_name in x]
+            if value in allowed_values:
+                return []
+            allowed.append(f"{table_name}.{column_name}")
+    message = f"'{value}' must be in: " + ", ".join(allowed)
+    return [error(config, table, column, row_idx, message)]
+
+
+def validate_condition(config, condition, table, column, row_idx, value):
+    if condition["type"] == "function":
+        name = condition["name"]
+        args = condition["args"]
+        function = config["functions"][name]
+        return function["validate"](config, args, table, column, row_idx, value)
+    elif condition["type"] == "string":
+        return validate_datatype(config, condition, table, column, row_idx, value)
+    else:
+        raise Exception(f"invalid condition '{condition}'")
+
+
+default_datatypes = {
+    "blank": {
+        "datatype": "blank",
+        "parent": "",
+        "match": re.compile(r"^$"),
+        "level": "ERROR",
+        "description": "an empty string",
+    }
+}
+
+default_functions = {
+    "any": {
+        "usage": "any(expression+)",
+        "check": check_many_expression_args,
+        "validate": validate_any,
+    },
+    "in": {
+        "usage": "in(value+)",
+        "check": check_many_value_args,
+        "validate": validate_in
+    },
+}
+
+datatype_conditions = [
+    ["parent", "any(blank, in(datatype.datatype))"],
+]
+
+
+def get_table_details(paths, row_start=2):
+    """Build a dictionary of table details.
+
+    :param paths: list of table paths
+    :param row_start: row number that contents to validate start on
+    :return: dict of table name -> {fields, rows}
+    """
+    tables = {}
+    for path in paths:
+        sep = "\t"
+        if path.endswith("csv"):
+            sep = ","
+        with open(path, "r") as f:
+            reader = csv.DictReader(f, delimiter=sep)
+            name = os.path.splitext(os.path.basename(path))[0]
+            if name in tables:
+                raise Exception(f"Duplicate table name '{name}'")
+            tables[name] = {
+                "path": path,
+                "fields": reader.fieldnames,
+                "rows": list(reader)[row_start - 2 :],
+            }
+    return tables
+
+
+def configure_datatypes(config):
+    if "datatype" not in config["table_details"]:
+        raise Exception(f"missing table 'datatype'")
+    rows = config["table_details"]["datatype"]["rows"]
+    messages = check_rows(config, datatype_schema, rows)
+    config["datatypes"] = default_datatypes
+    conditions = []
+    for column, condition in datatype_conditions:
+        conditions.append([column, build_condition(config, condition)])
+    row_idx = config["row_start"]
+    for row in rows:
+        for column, condition in conditions:
+            messages.extend(validate_condition(config, condition, "datatype", column, row_idx, row[column]))
+        row_idx += 1
+    config["datatypes"] = {}
+    for row in rows:
+        datatype = row # TODO: Do the work!
+        config["datatypes"][datatype["datatype"]] = datatype
+    return messages
+
+
+def configure_fields(config):
+    if "field" not in config["table_details"]:
+        raise Exception(f"missing table 'field'")
+    rows = config["table_details"]["field"]["rows"]
+    messages = check_rows(config, field_schema, rows)
+    row_idx = config["row_start"]
+    for row in rows:
+        table = row["table"]
+        if table != "*":
+            if table not in config["table_details"]:
+                messages.append(error(config, "field", "table", row_idx, f"unrecognized table '{table}'"))
+            else:
+                column = row["column"]
+                if column not in config["table_details"][table]["fields"]:
+                    messages.append(error(config, "field", "column", row_idx, f"unrecognized column '{column}' for table '{table}'"))
+        row_idx += 1
+    # TODO: check conditions
+    # TODO: build trees
+    return rows, messages
+
+
+
+tables = [
+    "tests/resources/inputs/datatype.tsv",
+    "tests/resources/inputs/field.tsv",
+    "tests/resources/inputs/prefix.tsv",
+    "tests/resources/inputs/external.tsv",
+    "tests/resources/inputs/cytometry.tsv",
+    "tests/resources/inputs/exposure.tsv",
+]
+
+config = {
+    "row_start": 2,
+    "functions": default_functions,
+    "table_details": get_table_details(tables)
+}
+
+messages = configure_datatypes(config)
+print("DATATYPE MESSAGES", messages)
+messages = configure_fields(config)
+print("DATATYPE FIELDS", messages)
+
+sys.exit(0)
+
 
 
 # Required headers for 'datatype' table
@@ -55,20 +471,6 @@ def build_datatype_ancestors(datatypes, datatype):
         ancestors.append(parent)
         ancestors.extend(build_datatype_ancestors(datatypes, parent))
     return ancestors
-
-
-def error(config, table, column, row_idx, message, level="ERROR", suggestion=None):
-    row_start = config["row_start"]
-    col_idx = config["table_details"][table]["fields"].index(column)
-    d = {
-        "table": table,
-        "cell": idx_to_a1(row_start + row_idx, col_idx + 1),
-        "level": level,
-        "message": message,
-    }
-    if suggestion:
-        d["suggestion"] = suggestion
-    return d
 
 
 def get_indexes(seq, item):
@@ -115,93 +517,7 @@ def has_ancestor(tree, ancestor, node, direct=False):
     return False
 
 
-def idx_to_a1(row, col):
-    """Convert a row & column to A1 notation. Adapted from gspread.utils.
-
-    :param row: row index
-    :param col: column index
-    :return: A1 notation of row:column
-    """
-    div = col
-    column_label = ""
-
-    while div:
-        (div, mod) = divmod(div, 26)
-        if mod == 0:
-            mod = 26
-            div -= 1
-        column_label = chr(mod + 64) + column_label
-
-    return f"{column_label}{row}"
-
-
-def parsed_to_str(condition):
-    """Convert a parsed condition back to its original string.
-
-    :param condition: parsed condition to convert
-    :return: string version of condition
-    """
-    cond_type = condition["type"]
-    if cond_type == "string":
-        val = condition["value"]
-        if " " in val:
-            return f'"{val}"'
-        return val
-    if cond_type == "field":
-        table = condition["table"]
-        col = condition["column"]
-        if " " in table:
-            table = f'"{table}"'
-        if " " in col:
-            col = f'"{col}"'
-        return f"{table}.{col}"
-    if cond_type == "named_arg":
-        name = condition["name"]
-        val = condition["value"]
-        if " " in val:
-            val = f'"{val}"'
-        return f"{name}={val}"
-    if cond_type == "regex":
-        pattern = condition["pattern"]
-        flags = condition["flags"]
-        if "replace" in condition:
-            replace = condition["replace"]
-            return f"s/{pattern}/{replace}/{flags}"
-        return f"/{pattern}/{flags}"
-    if cond_type == "function":
-        args = []
-        for arg in condition["args"]:
-            args.append(parsed_to_str(arg))
-        name = condition["name"]
-        args = ", ".join(args)
-        return f"{name}({args})"
-    raise Exception("Unknown condition type: " + cond_type)
-
-
 # ---- INPUT TABLES ----
-
-
-def get_table_details(tables, row_start=2):
-    """Build a dictionary of table details.
-
-    :param tables: list of table paths
-    :param row_start: row number that contents to validate start on
-    :return: dict of table name -> {fields, rows}
-    """
-    table_details = {}
-    for table in tables:
-        sep = "\t"
-        if table.endswith("csv"):
-            sep = ","
-        with open(table, "r") as f:
-            reader = csv.DictReader(f, delimiter=sep)
-            table_name = os.path.splitext(os.path.basename(table))[0]
-            table_details[table_name] = {
-                "path": table,
-                "fields": reader.fieldnames,
-                "rows": list(reader)[row_start - 2 :],
-            }
-    return table_details
 
 
 def read_datatype_table(datatype_table):
