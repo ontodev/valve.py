@@ -87,7 +87,12 @@ The main method is [`valve.validate`](https://github.com/ontodev/valve.py/blob/m
 
 ### Custom Functions
 
-You may call `valve.validate` with an optional `functions={...}` argument. The dictionary value should be in the format of function name (for use in rule and field tables) -> function object (which may or may not have the same name). The function name should not collide with any [builtin functions](https://github.com/ontodev/valve/blob/main/README.md#functions). The function must be defined in your file with the following required parameters in this order, even if they are not all used:
+You may call `valve.validate` with an optional `functions={...}` argument. The dictionary value should be in the format of function name (for use in rule and field tables) -> details dict. The details dict includes the following items:
+* `usage`: usage text (optional)
+* `validate`: the function to run for VALVE validation
+* `check`: the function to run to check arguments passed to the VALVE function (optional)
+
+The function name should not collide with any [builtin functions](https://github.com/ontodev/valve/blob/main/README.md#functions). The function must be defined in your file with the following required parameters in this order, even if they are not all used:
 
 1. `config`: VALVE configuration dictionary
 2. `args`: parsed (via `valve.parse`) arguments from the function
