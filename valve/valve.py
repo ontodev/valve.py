@@ -14,7 +14,7 @@ from collections import defaultdict
 from .parse import parse
 
 
-with open("valve.json") as f:
+with open("valve/valve.json") as f:
     main_schema = json.load(f)
 del main_schema["type"]
 argument_schema = copy.deepcopy(main_schema)

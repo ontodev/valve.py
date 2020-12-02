@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://example.com/product.schema.json",
+  "title": "VALVE expression",
+  "description": "A parse VALVE expression",
+  "definitions": {
+      "string": {
+          "description": "string",
+          "type": "object",
+          "properties": {
+              "type": {"enum": ["string"]},
+              "value": {"type": "string"}
+          },
+          "required": ["type", "value"]
+      },
+      "table_column": {
+          "description": "field",
+          "type": "object",
+          "properties": {
+              "type": {"enum": ["field"]},
+              "table": {"type": "string"},
+              "column": {"type": "string"}
+          },
+          "required": ["type", "table", "column"]
+      },
+      "regex": {
+          "description": "regex",
+          "type": "object",
+          "properties": {
+              "type": {"enum": ["regex"]},
+              "pattern": {"type": "string"},
+              "replace": {"type": "string"},
+              "flags": {"type": "string"}
+          },
+          "required": ["type", "pattern", "flags"]
+      },
+      "named_arg": {
+          "description": "named argument",
+          "type": "object",
+          "properties": {
+              "type": {"enum": ["named_arg"]},
+              "key": {"type": "string"},
+              "value": {"type": "string"}
+          },
+          "required": ["type", "key", "value"]
+      },
+      "argument": {
+          "oneOf": [
+            {"$ref": "#/definitions/string"},
+            {"$ref": "#/definitions/table_column"},
+            {"$ref": "#/definitions/regex"},
+            {"$ref": "#/definitions/named_arg"},
+            {"$ref": "#/definitions/function"}
+          ]
+      },
+      "function": {
+          "description": "function",
+          "type": "object",
+          "properties": {
+              "type": {"enum": ["function"]},
+              "name": {"type": "string"},
+              "args": {
+                  "type": "array",
+                  "items": {"$ref": "#/definitions/argument"}
+              }
+          },
+          "required": ["type", "name", "args"]
+      },
+      "expression": {
+          "oneOf": [
+            {"$ref": "#/definitions/string"},
+            {"$ref": "#/definitions/function"}
+          ]
+      },
+      "level": {"enum": ["FATAL", "ERROR", "WARN", "INFO", "DEBUG"]},
+      "datatype": {
+          "description": "datatype",
+          "type": "object",
+          "properties": {
+              "datatype": {"type": "string"},
+              "parent": {"type": "string"},
+              "match": {"type": "string"},
+              "level": {"$ref": "#/definitions/level"},
+              "description": {"type": "string"},
+              "instructions": {"type": "string"},
+              "replace": {"type": "string"}
+          },
+          "required": ["datatype", "parent", "match", "level"]
+      },
+      "field": {
+          "description": "field",
+          "type": "object",
+          "properties": {
+              "table": {"type": "string"},
+              "column": {"type": "string"},
+              "condition": {"type": "string"},
+              "level": {"$ref": "#/definitions/level"}
+          },
+          "required": ["table", "column", "condition"]
+      },
+      "rule": {
+          "description": "rule",
+          "type": "object",
+          "properties": {
+              "table": {"type": "string"},
+              "when column": {"type": "string"},
+              "when condition": {"type": "string"},
+              "then column": {"type": "string"},
+              "then condition": {"type": "string"},
+              "level": {"$ref": "#/definitions/level"}
+          },
+          "required": [
+              "table",
+              "when column",
+              "when condition",
+              "then column",
+              "then condition"
+          ]
+      },
+      "config": {
+          "description": "config",
+          "type": "object",
+          "properties": {
+              "datatype": {
+                  "type": "array",
+                  "items": {"$ref": "#/definitions/datatype"}
+              },
+              "field": {
+                  "type": "array",
+                  "items": {"$ref": "#/definitions/field"}
+              },
+              "rule": {
+                  "type": "array",
+                  "items": {"$ref": "#/definitions/rule"}
+              }
+          },
+          "required": ["datatype", "field"]
+      }
+  },
+  "type": "array",
+  "items": {"$ref": "#/definitions/argument"}
+}
