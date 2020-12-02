@@ -61,7 +61,6 @@ def validate(paths, add_functions=None, distinct_messages=None, row_start=2):
     # Load all tables, error on duplicates
     table_details = get_table_details(fixed_paths, row_start=row_start)
     config = {"functions": functions, "table_details": table_details, "row_start": row_start}
-    logging.error(config.keys())
 
     # Load datatype, field, and rule - stop process on any problems
     setup_messages = configure_datatypes(config)
@@ -232,7 +231,7 @@ def configure_datatypes(config):
 
     # Check structure & contents of datatype table
     messages = check_rows(config, datatype_schema, "datatype", rows)
-    config["datatypes"] = copy.deepcopy(default_datatypes)
+    config["datatypes"] = default_datatypes
     messages.extend(check_config_contents(config, "datatype", datatype_conditions, rows))
 
     for row in rows:
