@@ -26,5 +26,6 @@ setup(
     install_requires=install_requires,
     setup_requires=["pytest-runner"],
     packages=find_packages(exclude="tests"),
+    include_package_data=True,
     entry_points={"console_scripts": ["valve=valve.valve:main"]},
 )

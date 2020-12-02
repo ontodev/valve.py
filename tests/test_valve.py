@@ -48,11 +48,11 @@ def run_valve(output_name, distinct):
             shutil.rmtree("build")
 
 
-@pytest.mark.skip(reason="Refactoring")
+# @pytest.mark.skip(reason="Refactoring")
 def test_valve():
     run_valve("errors", False)
 
 
-@pytest.mark.skip(reason="Refactoring")
+# @pytest.mark.skip(reason="Refactoring")
 def test_valve_distinct():
     run_valve("errors_distinct", "build")
