@@ -84,3 +84,48 @@ import valve
 
 <!-- TODO: add link to auto-generated docs -->
 The main method is [`valve.validate`](https://github.com/ontodev/valve.py/blob/main/valve/valve.py#L1470), which accepts either a list of input paths (files or directories) or a config dictionary like the one output by [`valve.get_config_from_tables`](https://github.com/ontodev/valve.py/blob/main/valve/valve.py#L1392). `valve.validate` returns a list of messages. Each message is a dictionary with fields for [COGS message tables](https://github.com/ontodev/cogs#message-tables).
+
+### Custom Functions
+
+You may call `valve.validate` with an optional `functions={...}` argument. The dictionary value should be in the format of function name (for use in rule and field tables) -> details dict. The details dict includes the following items:
+* `usage`: usage text (optional)
+* `validate`: the function to run for VALVE validation
+* `check`: the function to run to check arguments passed to the VALVE function (optional)
+
+The function name should not collide with any [builtin functions](https://github.com/ontodev/valve/blob/main/README.md#functions). The function must be defined in your file with the following required parameters in this order, even if they are not all used:
+
+1. `config`: VALVE configuration dictionary
+2. `args`: parsed (via `valve.parse`) arguments from the function
+3. `table`: table name containing value
+4. `column`: column name containing value
+5. `row_idx`: row index containing value
+6. `value`: value to run the function on
+
+The function should return a list of messages (empty on success). The messages are dictionaries with the following keys:
+* `table`: table name (no parent directories or extension)
+* `cell`: A1 format of cell location (you can use `idx_to_a1` to get this\*)
+* `message`: detailed error message
+
+\* When getting the A1 format of the location, note that the `row_idx` always starts at zero, without headers (or any skipped rows) included in the list of rows. You must add `row_start` to this to get the correct row number.
+
+You may also include a `suggestion` key if you want to provide a suggested replacement value.
+
+For example:
+```python
+def foo_bar(config, args, table, column, row_idx, value):
+    required_in_value = args[0]["value"]
+    if required_in_value not in value:
+        row_start = config["row_start"]
+        col_idx = config["table_details"][table]["fields"].index(column)
+        cell_loc = valve.idx_to_a1(row_idx + row_start, col_idx + 1)
+        return [
+            {
+                "table": table,
+                "cell": cell_loc,
+                "message": f"'{value}' must contain '{required_in_value}'",
+            }
+        ]
+    return []
+
+valve.validate("inputs/", functions={"foo": foo_bar})
+```
