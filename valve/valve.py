@@ -861,7 +861,10 @@ def validate_list(config, args, table, column, row_idx, value):
     for v in value.split(split_char):
         errs.extend(validate_condition(config, expr, table, column, row_idx, v))
     if errs:
-        message = "\n".join(errs)
+        messages = []
+        for err in errs:
+            messages.append(err["message"])
+        message = "; ".join(messages)
         return [error(config, table, column, row_idx, message)]
     return []
 
