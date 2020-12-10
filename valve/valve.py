@@ -111,8 +111,10 @@ def validate_table(config, table):
 
     fields = config["table_fields"].get(table, {})
     fields.update(config.get("*", {}))
-    rules = config["table_rules"].get(table, {})
-    rules.update(config.get("*", {}))
+    rules = None
+    if "table_rules" in config:
+        rules = config["table_rules"].get(table, {})
+        rules.update(config.get("*", {}))
 
     row_idx = 0
     for row in table_details[table_name]["rows"]:
@@ -136,7 +138,7 @@ def validate_table(config, table):
                         errors.append(m)
 
             # Check for rules
-            if field in rules:
+            if rules and field in rules:
                 # Check if the value meets any of the conditions
                 for rule in rules[field]:
                     when_condition = rule["when_condition"]
