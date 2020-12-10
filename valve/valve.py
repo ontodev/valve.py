@@ -1205,9 +1205,13 @@ def error(config, table, column, row_idx, message, level="ERROR", suggestion=Non
     """
     row_start = config["row_start"]
     col_idx = config["table_details"][table]["fields"].index(column)
+    if table in ["datatype", "field", "rule"]:
+        row_num = row_idx
+    else:
+        row_num = row_idx + row_start
     d = {
         "table": table,
-        "cell": idx_to_a1(row_start + row_idx, col_idx + 1),
+        "cell": idx_to_a1(row_num, col_idx + 1),
         "level": level,
         "message": message,
     }
