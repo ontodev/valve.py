@@ -755,7 +755,19 @@ def validate_concat(config, args, table, column, row_idx, value):
                 validate_conditions.append(arg)
                 continue
             validate_values.append(rem.split(arg_val, 1)[0])
-            rem = rem.split(arg_val, 1)[1]
+            try:
+                rem = rem.split(arg_val, 1)[1]
+            except IndexError:
+                # Does not match pattern given in concat
+                return [
+                    error(
+                        config,
+                        table,
+                        column,
+                        row_idx,
+                        f"'{value}' must contain substring '{arg_val}'",
+                    )
+                ]
         else:
             validate_conditions.append(arg)
     if rem:
