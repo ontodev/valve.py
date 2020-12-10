@@ -747,15 +747,19 @@ def validate_concat(config, args, table, column, row_idx, value):
     datatypes = config["datatypes"]
     validate_conditions = []
     validate_values = []
+    rem = value
     for arg in args:
         if arg["type"] == "string":
             arg_val = arg["value"]
             if arg_val in datatypes:
                 validate_conditions.append(arg)
                 continue
-            validate_values.append(value.split(arg_val, 1)[0])
+            validate_values.append(rem.split(arg_val, 1)[0])
+            rem = rem.split(arg_val, 1)[1]
         else:
             validate_conditions.append(arg)
+    if rem:
+        validate_values.append(rem)
     idx = 0
     messages = []
     while idx < len(validate_values):
