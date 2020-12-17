@@ -588,18 +588,13 @@ def check_rows(config, schema, table, rows):
         jsonschema.validate(rows, schema)
     except jsonschema.exceptions.ValidationError as err:
         if err.validator == "required":
-            return (
-                None,
-                {
-                    "level": "ERROR",
-                    "table": table,
-                    "message": err.message.replace("property", "column"),
-                },
-            )
+            msg = err.message.replace("property", "column")
+        else:
+            msg = err.message
         if len(err.path) > 1:
             row_idx, column = list(err.path)[0:2]
-            return [error(config, table, column, row_idx, err.message)]
-        return [err.message]
+            return [error(config, table, column, row_idx, msg)]
+        return [{"table": table, "level": "ERROR", "message": msg}]
     return []
 
 
