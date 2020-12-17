@@ -481,7 +481,7 @@ def check_function(config, parsed):
 
     :param config: valve config dict
     :param parsed: parsed function
-    :return: list of messages (empty on success)
+    :return: string error message or None on success
     """
     condition = parsed_to_str(parsed)
     name = parsed["name"]
@@ -518,61 +518,104 @@ def check_function(config, parsed):
             if column not in config["table_details"][table]["fields"]:
                 return f"unrecognized column '{column}' in table '{table}'"
     if "check" in function:
-        return function["check"](name, parsed["args"])
+        return check_args(name, parsed["args"], function["check"])
 
 
-def check_many_expression_args(name, args):
-    """Check a list of args with many expressions.
+def check_args(name, args, expected):
+    """Check a list of args for a function against a list of expected types.
 
-    :param name: function name
-    :param args: list of args
-    :return: error message
+    :param name: name of function to check
+    :param args: function args
+    :param expected: list of expected types
+    :return: error messages or None on success
     """
-    if len(args) == 0:
-        return f"'{name}' requires one or more arguments"
-
-
-def check_many_value_args(name, args):
-    """Check a list of args with many values (string or field).
-
-    :param name: function name
-    :param args: list of args
-    :return: error message
-    """
-    if len(args) == 0:
-        return f"'{name}' requires one or more arguments"
-    for arg in args:
-        if arg["type"] in ["string", "field"]:
-            pass
+    i = 0
+    errors = []
+    itr = iter(expected)
+    e = next(itr)
+    other_e = None
+    while True:
+        add_msg = ""
+        if other_e:
+            add_msg = f" or {other_e}"
+        if e.endswith("*"):
+            # zero or more
+            e = e[:-1]
+            for a in args[i:]:
+                if not check_arg(a, e):
+                    errors.append(f"{name} optional argument {i + 1} must be of type {e}{add_msg}")
+                i += 1
+        elif e.endswith("?"):
+            # zero or one
+            e = e[:-1]
+            if len(args) <= i:
+                # this is OK here
+                break
+            if not check_arg(args[i], e):
+                try:
+                    other_e = e
+                    e = next(itr)
+                    continue
+                except StopIteration:
+                    # no other expected args, add error
+                    errors.append(f"{name} optional argument {i + 1} must be of type {e}{add_msg}")
+                    break
+        elif e.endswith("+"):
+            # one or more
+            e = e[:-1]
+            if len(args) <= i:
+                errors.append(f"{name} requires one or more {e}{add_msg} at argument {i + 1}")
+                break
+            for a in args[i:]:
+                if not check_arg(a, e):
+                    errors.append(f"{name} argument {i + 1} must be of type {e}{add_msg}")
+                i += 1
         else:
-            string = arg
-            try:
-                string = parsed_to_str(arg)
-            except ValueError:
-                pass
-            return f"invalid argument '{string}' for '{name}'"
+            # exactly one
+            if len(args) <= i:
+                errors.append(f"{name} requires one {e}{add_msg} at argument {i + 1}")
+                break
+            if not check_arg(args[i], e):
+                errors.append(f"{name} argument {i + 1} must be of type {e}{add_msg}")
+        try:
+            i += 1
+            e = next(itr)
+        except StopIteration:
+            break
+    if i < len(args):
+        errors.append(f"{name} expects {i} argument(s), but {len(args)} were given")
+    if errors:
+        return "; ".join(errors)
 
 
-def check_one_expression_args(name, args):
-    """Check a list of args with one expression.
+def check_arg(arg, expected):
+    """Check that an arg is of expected type.
 
-    :param name: function name
-    :param args: list of args
-    :return: error message
+    :param arg: arg to check
+    :param expected: expected type
+    :return: True if expected type, False otherwise
     """
-    if len(args) != 1:
-        return f"'{name}' requires exactly one argument"
-
-
-def check_two_expression_args(name, args):
-    """Check a list of args with two expressions.
-
-    :param name: function name
-    :param args: list of args
-    :return: error message
-    """
-    if len(args) != 1:
-        return f"'{name}' requires exactly two arguments"
+    if " or " in expected:
+        valid = False
+        for e in expected.split(" or "):
+            if check_arg(arg, e):
+                valid = True
+                break
+        return valid
+    if expected.startswith("named:"):
+        if arg["type"] != "named_arg":
+            return False
+        if arg["key"] != expected[6:]:
+            return False
+    elif expected in ["field", "string", "regex"]:
+        if arg["type"] != expected:
+            return False
+    elif expected == "expression":
+        if arg["type"] not in ["function", "string"]:
+            return False
+    else:
+        raise Exception("Unknown argument type: " + expected)
+    return True
 
 
 def check_rows(config, schema, table, rows):
@@ -1397,44 +1440,44 @@ default_datatypes = {
 default_functions = {
     "any": {
         "usage": "any(expression+)",
-        "check": check_many_expression_args,
+        "check": ["expression+"],
         "validate": validate_any,
     },
     "concat": {
         "usage": "concat(value+)",
-        "check": check_many_expression_args,
+        "check": ["expression or string+"],
         "validate": validate_concat,
     },
-    "in": {"usage": "in(value+)", "check": check_many_value_args, "validate": validate_in},
     "distinct": {
         "usage": "distinct(expression)",
-        "check": check_one_expression_args,
+        "check": ["expression", "field*"],
         "validate": validate_distinct,
     },
+    "in": {"usage": "in(value+)", "check": ["string or field+"], "validate": validate_in},
     "list": {
         "usage": "list(str, expression)",
-        "check": check_many_expression_args,
+        "check": ["string", "expression"],
         "validate": validate_list,
     },
     "lookup": {
         "usage": "lookup(table, column, column)",
-        "check": check_many_value_args,
+        "check": ["string", "string", "string"],
         "validate": validate_lookup,
     },
     "not": {
         "usage": "not(expression)",
-        "check": check_one_expression_args,
+        "check": ["expression"],
         "validate": validate_not,
     },
     "sub": {
         "usage": "sub(regex, expression)",
-        "check": check_many_expression_args,
+        "check": ["regex", "expression"],
         "validate": validate_sub,
     },
-    "tree": {"usage": "tree()", "check": check_many_expression_args, "validate": None},
+    "tree": {"usage": "tree()", "check": ["string", "field?", "named:split?"], "validate": None},
     "under": {
         "usage": "under(table.column, str, [direct=bool])",
-        "check": check_many_expression_args,
+        "check": ["field", "string", "named:direct?"],
         "validate": validate_under,
     },
 }

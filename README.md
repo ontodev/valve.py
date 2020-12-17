@@ -90,7 +90,23 @@ The main method is [`valve.validate`](https://github.com/ontodev/valve.py/blob/m
 You may call `valve.validate` with an optional `functions={...}` argument. The dictionary value should be in the format of function name (for use in rule and field tables) -> details dict. The details dict includes the following items:
 * `usage`: usage text (optional)
 * `validate`: the function to run for VALVE validation
-* `check`: the function to run to check arguments passed to the VALVE function (optional)
+* `check`: the expected structure of the arguments
+
+The `check` is a special list which outlines what the arguments passed in should look like. Each element in the list is an argument type:
+* `expression`: function or datatype
+* `field`: a table-column pair
+* `named:...`: named argument followed by the argument key (e.g., if your named arg looks like `distinct=true`, then this value will be `named:distinct`)
+* `regex`: a regex pattern or substitution
+* `string`: any other string
+
+If an argument can be of multiple types, you can join them with ` or `. For example, for an argument that can be either a string or a field: `string or field`.
+
+Optional and multi-arity arguments can be specified with special modifiers attached to the end:
+* `*`: zero or more
+* `?`: zero or one
+* `+`: one or more
+
+For example, if you expect one or more string arguments: `string*`. Named arguments are almost always optional, so these would look like: `named:distinct?`. Optional or multi-arity arguments should always be the last parameters.
 
 The function name should not collide with any [builtin functions](https://github.com/ontodev/valve/blob/main/README.md#functions). The function must be defined in your file with the following required parameters in this order, even if they are not all used:
 
@@ -112,7 +128,7 @@ You may also include a `suggestion` key if you want to provide a suggested repla
 
 For example:
 ```python
-def foo_bar(config, args, table, column, row_idx, value):
+def validate_foo(config, args, table, column, row_idx, value):
     required_in_value = args[0]["value"]
     if required_in_value not in value:
         row_start = config["row_start"]
@@ -127,5 +143,14 @@ def foo_bar(config, args, table, column, row_idx, value):
         ]
     return []
 
-valve.validate("inputs/", functions={"foo": foo_bar})
+valve.validate(
+    "inputs/",
+    functions={
+        "foo": {
+            "usage": "foo(string)",
+            "check": ["string"],
+            "validate": validate_foo
+        }
+    }
+)
 ```
