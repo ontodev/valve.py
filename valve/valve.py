@@ -533,11 +533,8 @@ def check_args(name, args, expected):
     errors = []
     itr = iter(expected)
     e = next(itr)
-    other_e = None
+    add_msg = ""
     while True:
-        add_msg = ""
-        if other_e:
-            add_msg = f" or {other_e}"
         if e.endswith("*"):
             # zero or more
             e = e[:-1]
@@ -553,7 +550,7 @@ def check_args(name, args, expected):
                 break
             if not check_arg(args[i], e):
                 try:
-                    other_e = e
+                    add_msg = f" or {e}"
                     e = next(itr)
                     continue
                 except StopIteration:
