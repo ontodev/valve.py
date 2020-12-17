@@ -396,12 +396,12 @@ def configure_rules(config):
         when_condition = row["when condition"]
         parsed_when_condition, err = parse_condition(config, when_condition)
         if err:
-            messages.append(error(config, "field", "when condition", row_idx, err))
+            messages.append(error(config, "rule", "when condition", row_idx, err))
             continue
         then_condition = row["then condition"]
         parsed_then_condition, err = parse_condition(config, then_condition)
         if err:
-            messages.append(error(config, "field", "then condition", row_idx, err))
+            messages.append(error(config, "rule", "then condition", row_idx, err))
             continue
 
         # Add this condition to the dicts
@@ -543,7 +543,7 @@ def check_args(name, args, expected):
             e = e[:-1]
             for a in args[i:]:
                 if not check_arg(a, e):
-                    errors.append(f"{name} optional argument {i + 1} must be of type {e}{add_msg}")
+                    errors.append(f"optional argument {i + 1} must be of type {e}{add_msg}")
                 i += 1
         elif e.endswith("?"):
             # zero or one
@@ -558,34 +558,34 @@ def check_args(name, args, expected):
                     continue
                 except StopIteration:
                     # no other expected args, add error
-                    errors.append(f"{name} optional argument {i + 1} must be of type {e}{add_msg}")
+                    errors.append(f"optional argument {i + 1} must be of type {e}{add_msg}")
                     break
         elif e.endswith("+"):
             # one or more
             e = e[:-1]
             if len(args) <= i:
-                errors.append(f"{name} requires one or more {e}{add_msg} at argument {i + 1}")
+                errors.append(f"requires one or more {e}{add_msg} at argument {i + 1}")
                 break
             for a in args[i:]:
                 if not check_arg(a, e):
-                    errors.append(f"{name} argument {i + 1} must be of type {e}{add_msg}")
+                    errors.append(f"argument {i + 1} must be of type {e}{add_msg}")
                 i += 1
         else:
             # exactly one
             if len(args) <= i:
-                errors.append(f"{name} requires one {e}{add_msg} at argument {i + 1}")
+                errors.append(f"requires one {e}{add_msg} at argument {i + 1}")
                 break
             if not check_arg(args[i], e):
-                errors.append(f"{name} argument {i + 1} must be of type {e}{add_msg}")
+                errors.append(f"argument {i + 1} must be of type {e}{add_msg}")
         try:
             i += 1
             e = next(itr)
         except StopIteration:
             break
     if i < len(args):
-        errors.append(f"{name} expects {i} argument(s), but {len(args)} were given")
+        errors.append(f"expects {i} argument(s), but {len(args)} were given")
     if errors:
-        return "; ".join(errors)
+        return name + " " + "; ".join(errors)
 
 
 def check_arg(arg, expected):
