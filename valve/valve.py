@@ -111,8 +111,10 @@ def validate_table(config, table):
 
     fields = config["table_fields"].get(table, {})
     fields.update(config.get("*", {}))
-    rules = config["table_rules"].get(table, {})
-    rules.update(config.get("*", {}))
+    rules = None
+    if "table_rules" in config:
+        rules = config["table_rules"].get(table, {})
+        rules.update(config.get("*", {}))
 
     row_idx = 0
     for row in table_details[table_name]["rows"]:
@@ -136,7 +138,7 @@ def validate_table(config, table):
                         errors.append(m)
 
             # Check for rules
-            if field in rules:
+            if rules and field in rules:
                 # Check if the value meets any of the conditions
                 for rule in rules[field]:
                     when_condition = rule["when_condition"]
@@ -745,15 +747,31 @@ def validate_concat(config, args, table, column, row_idx, value):
     datatypes = config["datatypes"]
     validate_conditions = []
     validate_values = []
+    rem = value
     for arg in args:
         if arg["type"] == "string":
             arg_val = arg["value"]
             if arg_val in datatypes:
                 validate_conditions.append(arg)
                 continue
-            validate_values.append(value.split(arg_val, 1)[0])
+            validate_values.append(rem.split(arg_val, 1)[0])
+            try:
+                rem = rem.split(arg_val, 1)[1]
+            except IndexError:
+                # Does not match pattern given in concat
+                return [
+                    error(
+                        config,
+                        table,
+                        column,
+                        row_idx,
+                        f"'{value}' must contain substring '{arg_val}'",
+                    )
+                ]
         else:
             validate_conditions.append(arg)
+    if rem:
+        validate_values.append(rem)
     idx = 0
     messages = []
     while idx < len(validate_values):
@@ -859,7 +877,10 @@ def validate_list(config, args, table, column, row_idx, value):
     for v in value.split(split_char):
         errs.extend(validate_condition(config, expr, table, column, row_idx, v))
     if errs:
-        message = "\n".join(errs)
+        messages = []
+        for err in errs:
+            messages.append(err["message"])
+        message = "; ".join(messages)
         return [error(config, table, column, row_idx, message)]
     return []
 
@@ -1203,9 +1224,13 @@ def error(config, table, column, row_idx, message, level="ERROR", suggestion=Non
     """
     row_start = config["row_start"]
     col_idx = config["table_details"][table]["fields"].index(column)
+    if table in ["datatype", "field", "rule"]:
+        row_num = row_idx
+    else:
+        row_num = row_idx + row_start
     d = {
         "table": table,
-        "cell": idx_to_a1(row_start + row_idx, col_idx + 1),
+        "cell": idx_to_a1(row_num, col_idx + 1),
         "level": level,
         "message": message,
     }
