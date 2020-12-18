@@ -185,14 +185,16 @@ def validate_table(config, table):
 # ---------- CONFIGURATION ----------
 
 
-def build_condition(config, condition):
+def build_condition(config, table, column, condition):
     """Build a parsed condition from a condition string.
 
     :param config: valve config dict
+    :param table: table that the condition is to be run on
+    :param column: column that the condition is to be run on
     :param condition: condition string
     :return: parsed condition
     """
-    parsed, err = parse_condition(config, condition)
+    parsed, err = parse_condition(config, table, column, condition)
     if err:
         raise Exception(err)
     return parsed
@@ -210,7 +212,7 @@ def check_config_contents(config, table, conditions, rows):
     messages = []
     parsed_conditions = []
     for column, condition in conditions:
-        parsed_conditions.append([column, build_condition(config, condition)])
+        parsed_conditions.append([column, build_condition(config, table, column, condition)])
     row_idx = config["row_start"]
     for row in rows:
         for column, condition in parsed_conditions:
@@ -302,7 +304,7 @@ def configure_fields(config):
 
         # Parse and validate the condition
         condition = row["condition"]
-        parsed_condition, err = parse_condition(config, condition)
+        parsed_condition, err = parse_condition(config, table, column, condition)
         if err:
             messages.append(error(config, "field", "condition", row_idx, err))
             continue
@@ -394,12 +396,12 @@ def configure_rules(config):
 
         # Parse and validate the conditions
         when_condition = row["when condition"]
-        parsed_when_condition, err = parse_condition(config, when_condition)
+        parsed_when_condition, err = parse_condition(config, table, when_column, when_condition)
         if err:
             messages.append(error(config, "rule", "when condition", row_idx, err))
             continue
         then_condition = row["then condition"]
-        parsed_then_condition, err = parse_condition(config, then_condition)
+        parsed_then_condition, err = parse_condition(config, table, then_column, then_condition)
         if err:
             messages.append(error(config, "rule", "then condition", row_idx, err))
             continue
@@ -476,10 +478,12 @@ def check_custom_function(funct_name, details):
         raise Exception(f"'{funct_name}' argument 6 must be value")
 
 
-def check_function(config, parsed):
+def check_function(config, table, column, parsed):
     """Check a function.
 
     :param config: valve config dict
+    :param table: table that this function will be run in
+    :param column: column in table that this function will be run in
     :param parsed: parsed function
     :return: string error message or None on success
     """
@@ -507,29 +511,31 @@ def check_function(config, parsed):
         return message
     for arg in parsed["args"]:
         if arg["type"] == "function":
-            err = check_function(config, arg)
+            err = check_function(config, table, column, arg)
             if err:
                 return err
         elif arg["type"] == "field":
-            table = arg["table"]
-            if table not in config["table_details"]:
-                return f"unrecognized table '{table}'"
-            column = arg["column"]
-            if column not in config["table_details"][table]["fields"]:
-                return f"unrecognized column '{column}' in table '{table}'"
+            t = arg["table"]
+            if t not in config["table_details"]:
+                return f"unrecognized table '{t}'"
+            c = arg["column"]
+            if c not in config["table_details"][t]["fields"]:
+                return f"unrecognized column '{c}' in table '{t}'"
     if "check" in function:
         c = function["check"]
         if isinstance(c, list):
-            return check_args(name, parsed["args"], function["check"])
+            return check_args(config, table, name, parsed["args"], function["check"])
         elif callable(c):
-            return c(config, parsed["args"])
+            return c(config, table, column, parsed["args"])
         else:
             raise Exception(f"'check' value for {name} must be a list or function")
 
 
-def check_args(name, args, expected):
+def check_args(config, table, name, args, expected):
     """Check a list of args for a function against a list of expected types.
 
+    :param config: valve config dict
+    :param table: table that the function will be run in
     :param name: name of function to check
     :param args: function args
     :param expected: list of expected types
@@ -545,8 +551,9 @@ def check_args(name, args, expected):
             # zero or more
             e = e[:-1]
             for a in args[i:]:
-                if not check_arg(a, e):
-                    errors.append(f"optional argument {i + 1} must be of type '{e}'{add_msg}")
+                err = check_arg(config, table, a, e)
+                if err:
+                    errors.append(f"optional argument {i + 1} {err}")
                 i += 1
         elif e.endswith("?"):
             # zero or one
@@ -554,32 +561,35 @@ def check_args(name, args, expected):
             if len(args) <= i:
                 # this is OK here
                 break
-            if not check_arg(args[i], e):
+            err = check_arg(config, table, args[i], e)
+            if err:
                 try:
-                    add_msg = f" or '{e}'"
+                    add_msg = f" or {err}"
                     e = next(itr)
                     continue
                 except StopIteration:
                     # no other expected args, add error
-                    errors.append(f"optional argument {i + 1} must be of type '{e}'{add_msg}")
+                    errors.append(f"optional argument {i + 1} {err}{add_msg}")
                     break
         elif e.endswith("+"):
             # one or more
             e = e[:-1]
             if len(args) <= i:
-                errors.append(f"requires one or more '{e}'{add_msg} at argument {i + 1}")
+                errors.append(f"requires one or more '{e}' at argument {i + 1}")
                 break
             for a in args[i:]:
-                if not check_arg(a, e):
-                    errors.append(f"argument {i + 1} must be of type '{e}'{add_msg}")
+                err = check_arg(config, table, a, e)
+                if err:
+                    errors.append(f"argument {i + 1} {err}{add_msg}")
                 i += 1
         else:
             # exactly one
             if len(args) <= i:
-                errors.append(f"requires one '{e}'{add_msg} at argument {i + 1}")
+                errors.append(f"requires one '{e}' at argument {i + 1}")
                 break
-            if not check_arg(args[i], e):
-                errors.append(f"argument {i + 1} must be of type '{e}'{add_msg}")
+            err = check_arg(config, table, args[i], e)
+            if err:
+                errors.append(f"argument {i + 1} {err}{add_msg}")
         try:
             i += 1
             e = next(itr)
@@ -591,44 +601,80 @@ def check_args(name, args, expected):
         return name + " " + "; ".join(errors)
 
 
-def check_arg(arg, expected):
+def check_arg(config, table, arg, expected):
     """Check that an arg is of expected type.
 
+    :param config: valve config dict
+    :param table: table name that is the target of the function
     :param arg: arg to check
     :param expected: expected type
-    :return: True if expected type, False otherwise
+    :return: error message or None on success
     """
     if " or " in expected:
         # remove optional parentheses
         m = re.match(r"\((.+)\)", expected)
         if m:
             expected = m.group(1)
+        errors = []
         valid = False
         for e in expected.split(" or "):
-            if check_arg(arg, e):
+            err = check_arg(config, table, arg, e)
+            if not err:
                 valid = True
-                break
-        return valid
-    if expected.startswith("named:"):
+            else:
+                errors.append(err)
+        if not valid:
+            return "; ".join(errors)
+
+    elif expected.startswith("named:"):
+        narg = expected[6:]
         if arg["type"] != "named_arg":
-            return False
-        if arg["key"] != expected[6:]:
-            return False
-    elif expected in ["field", "string", "regex"]:
-        if arg["type"] != expected:
-            return False
+            return f"value must be a named argument '{narg}"
+        if arg["key"] != narg:
+            return f"named argument must be '{narg}'"
+
+    elif expected == "column":
+        if arg["type"] != "string":
+            return f"value must be a string representing a column in '{table}'"
+        if arg["value"] not in config["table_details"][table]["fields"]:
+            return f'\'{arg["value"]}\' must be a column in \'{table}\''
+
     elif expected == "expression":
         if arg["type"] not in ["function", "string"]:
-            return False
+            return "value must be a function or datatype"
+        if arg["type"] == "string" and arg["value"] not in config["datatypes"]:
+            return f'\'{arg["value"]}\' must be a defined datatype'
+
+    elif expected in ["field", "string"]:
+        if arg["type"] != expected:
+            return f"value must be a {expected}"
+
+    elif expected == "regex_sub" or expected == "regex_match":
+        if arg["type"] != "regex":
+            return "value must be a regex pattern"
+        if expected.endswith("_sub") and "replace" not in arg:
+            return "regex pattern requires a substitution"
+        if expected.endswith("_match") and "replace" in arg:
+            return "regex pattern should not have a substitution"
+
+    elif expected == "tree":
+        # tree must be in trees
+        if arg["type"] != "field":
+            return f"value must be a table-column pair representing a tree name"
+        tname = f'{arg["table"]}.{arg["column"]}'
+        if tname not in config["trees"]:
+            return f"'{tname}' must be a defined tree"
+
     else:
         raise Exception("Unknown argument type: " + expected)
-    return True
 
 
-def check_lookup(config, args):
+def check_lookup(config, table, column, args):
     """Check the arguments passed to the lookup function.
 
     :param config: valve config dict
+    :param table: the target table to run lookup on
+    :param column: the target column to run lookup on
     :param args: list of parsed args
     :return: error message or None on success
     """
@@ -638,7 +684,7 @@ def check_lookup(config, args):
     while i < 3 and i < len(args):
         a = args[i]
         i += 1
-        if not check_arg(a, "string"):
+        if a["type"] != "string":
             errors.append(f"argument {i} must be of type 'string'")
             continue
         if i == 1:
@@ -692,16 +738,18 @@ def find_datatype_ancestors(datatypes, datatype):
     return ancestors
 
 
-def parse_condition(config, condition):
+def parse_condition(config, table, column, condition):
     """Check a condition and return the parsed condition.
 
     :param config: valve config dict
+    :param table: table that the condition is to be run on
+    :param column: column that the condition is to be run on
     :param condition: unparsed condition to check
     :return: parsed condition, error message
     """
     parsed = parse(condition)
     if parsed["type"] == "function":
-        err = check_function(config, parsed)
+        err = check_function(config, table, column, parsed)
         if err:
             return None, err
     elif parsed["type"] == "string":
@@ -1474,11 +1522,7 @@ default_datatypes = {
 
 # Builtin functions
 default_functions = {
-    "any": {
-        "usage": "any(expression+)",
-        "check": ["expression+"],
-        "validate": validate_any,
-    },
+    "any": {"usage": "any(expression+)", "check": ["expression+"], "validate": validate_any,},
     "concat": {
         "usage": "concat(value+)",
         "check": ["(expression or string)+"],
@@ -1500,20 +1544,20 @@ default_functions = {
         "check": check_lookup,
         "validate": validate_lookup,
     },
-    "not": {
-        "usage": "not(expression)",
-        "check": ["expression"],
-        "validate": validate_not,
-    },
+    "not": {"usage": "not(expression)", "check": ["expression"], "validate": validate_not,},
     "sub": {
         "usage": "sub(regex, expression)",
-        "check": ["regex", "expression"],
+        "check": ["regex_sub", "expression"],
         "validate": validate_sub,
     },
-    "tree": {"usage": "tree()", "check": ["string", "field?", "named:split?"], "validate": None},
+    "tree": {
+        "usage": "tree(column, [treename, named=bool])",
+        "check": ["column", "tree?", "named:split?"],
+        "validate": None,
+    },
     "under": {
-        "usage": "under(table.column, str, [direct=bool])",
-        "check": ["field", "string", "named:direct?"],
+        "usage": "under(treename, str, [direct=bool])",
+        "check": ["tree", "string", "named:direct?"],
         "validate": validate_under,
     },
 }
