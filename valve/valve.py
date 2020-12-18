@@ -518,7 +518,13 @@ def check_function(config, parsed):
             if column not in config["table_details"][table]["fields"]:
                 return f"unrecognized column '{column}' in table '{table}'"
     if "check" in function:
-        return check_args(name, parsed["args"], function["check"])
+        c = function["check"]
+        if isinstance(c, list):
+            return check_args(name, parsed["args"], function["check"])
+        elif callable(c):
+            return c(config, parsed["args"])
+        else:
+            raise Exception(f"'check' value for {name} must be a list or function")
 
 
 def check_args(name, args, expected):
@@ -540,7 +546,7 @@ def check_args(name, args, expected):
             e = e[:-1]
             for a in args[i:]:
                 if not check_arg(a, e):
-                    errors.append(f"optional argument {i + 1} must be of type {e}{add_msg}")
+                    errors.append(f"optional argument {i + 1} must be of type '{e}'{add_msg}")
                 i += 1
         elif e.endswith("?"):
             # zero or one
@@ -550,30 +556,30 @@ def check_args(name, args, expected):
                 break
             if not check_arg(args[i], e):
                 try:
-                    add_msg = f" or {e}"
+                    add_msg = f" or '{e}'"
                     e = next(itr)
                     continue
                 except StopIteration:
                     # no other expected args, add error
-                    errors.append(f"optional argument {i + 1} must be of type {e}{add_msg}")
+                    errors.append(f"optional argument {i + 1} must be of type '{e}'{add_msg}")
                     break
         elif e.endswith("+"):
             # one or more
             e = e[:-1]
             if len(args) <= i:
-                errors.append(f"requires one or more {e}{add_msg} at argument {i + 1}")
+                errors.append(f"requires one or more '{e}'{add_msg} at argument {i + 1}")
                 break
             for a in args[i:]:
                 if not check_arg(a, e):
-                    errors.append(f"argument {i + 1} must be of type {e}{add_msg}")
+                    errors.append(f"argument {i + 1} must be of type '{e}'{add_msg}")
                 i += 1
         else:
             # exactly one
             if len(args) <= i:
-                errors.append(f"requires one {e}{add_msg} at argument {i + 1}")
+                errors.append(f"requires one '{e}'{add_msg} at argument {i + 1}")
                 break
             if not check_arg(args[i], e):
-                errors.append(f"argument {i + 1} must be of type {e}{add_msg}")
+                errors.append(f"argument {i + 1} must be of type '{e}'{add_msg}")
         try:
             i += 1
             e = next(itr)
@@ -593,6 +599,10 @@ def check_arg(arg, expected):
     :return: True if expected type, False otherwise
     """
     if " or " in expected:
+        # remove optional parentheses
+        m = re.match(r"\((.+)\)", expected)
+        if m:
+            expected = m.group(1)
         valid = False
         for e in expected.split(" or "):
             if check_arg(arg, e):
@@ -613,6 +623,35 @@ def check_arg(arg, expected):
     else:
         raise Exception("Unknown argument type: " + expected)
     return True
+
+
+def check_lookup(config, args):
+    """Check the arguments passed to the lookup function.
+
+    :param config: valve config dict
+    :param args: list of parsed args
+    :return: error message or None on success
+    """
+    errors = []
+    i = 0
+    table = None
+    while i < 3 and i < len(args):
+        a = args[i]
+        i += 1
+        if not check_arg(a, "string"):
+            errors.append(f"argument {i} must be of type 'string'")
+            continue
+        if i == 1:
+            table = a["value"]
+            if a["value"] not in config["table_details"]:
+                errors.append(f"argument 1 must be a table in inputs")
+                return "lookup " + "; ".join(errors)
+        if table and i > 1 and a["value"] not in config["table_details"][table]["fields"]:
+            errors.append(f"argument {i} must be a column in '{table}'")
+    if len(args) != 3:
+        errors.append(f"expects 3 arguments, but {len(args)} were passed")
+    if errors:
+        return "lookup " + "; ".join(errors)
 
 
 def check_rows(config, schema, table, rows):
@@ -1442,7 +1481,7 @@ default_functions = {
     },
     "concat": {
         "usage": "concat(value+)",
-        "check": ["expression or string+"],
+        "check": ["(expression or string)+"],
         "validate": validate_concat,
     },
     "distinct": {
@@ -1450,7 +1489,7 @@ default_functions = {
         "check": ["expression", "field*"],
         "validate": validate_distinct,
     },
-    "in": {"usage": "in(value+)", "check": ["string or field+"], "validate": validate_in},
+    "in": {"usage": "in(value+)", "check": ["(string or field)+"], "validate": validate_in},
     "list": {
         "usage": "list(str, expression)",
         "check": ["string", "expression"],
@@ -1458,7 +1497,7 @@ default_functions = {
     },
     "lookup": {
         "usage": "lookup(table, column, column)",
-        "check": ["string", "string", "string"],
+        "check": check_lookup,
         "validate": validate_lookup,
     },
     "not": {

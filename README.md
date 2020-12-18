@@ -90,23 +90,7 @@ The main method is [`valve.validate`](https://github.com/ontodev/valve.py/blob/m
 You may call `valve.validate` with an optional `functions={...}` argument. The dictionary value should be in the format of function name (for use in rule and field tables) -> details dict. The details dict includes the following items:
 * `usage`: usage text (optional)
 * `validate`: the function to run for VALVE validation
-* `check`: the expected structure of the arguments
-
-The `check` is a special list which outlines what the arguments passed in should look like. Each element in the list is an argument type:
-* `expression`: function or datatype
-* `field`: a table-column pair
-* `named:...`: named argument followed by the argument key (e.g., if your named arg looks like `distinct=true`, then this value will be `named:distinct`)
-* `regex`: a regex pattern or substitution
-* `string`: any other string
-
-If an argument can be of multiple types, you can join them with ` or `. For example, for an argument that can be either a string or a field: `string or field`.
-
-Optional and multi-arity arguments can be specified with special modifiers attached to the end:
-* `*`: zero or more
-* `?`: zero or one
-* `+`: one or more
-
-For example, if you expect one or more string arguments: `string*`. Named arguments are almost always optional, so these would look like: `named:distinct?`. Optional or multi-arity arguments should always be the last parameters.
+* `check`: the [expected structure](#checking-with-a-list) of the arguments OR a custom [check function](#checking-with-a-function)
 
 The function name should not collide with any [builtin functions](https://github.com/ontodev/valve/blob/main/README.md#functions). The function must be defined in your file with the following required parameters in this order, even if they are not all used:
 
@@ -149,6 +133,58 @@ valve.validate(
         "foo": {
             "usage": "foo(string)",
             "check": ["string"],
+            "validate": validate_foo
+        }
+    }
+)
+```
+
+#### Checking with a list
+
+The `check` list outlines what the arguments passed in should look like. The example above uses a list to validate that exactly one string is passed to `foo`. Each element in the list is an argument type:
+* `expression`: function or datatype
+* `field`: a table-column pair
+* `named:...`: named argument followed by the argument key (e.g., if your named arg looks like `distinct=true`, then this value will be `named:distinct`)
+* `regex`: a regex pattern or substitution
+* `string`: any other string
+
+If an argument can be of multiple types, you can join them with ` or `. For example, for an argument that can be either a string or a field: `string or field`.
+
+Optional and multi-arity arguments can be specified with special modifiers attached to the end:
+* `*`: zero or more
+* `?`: zero or one
+* `+`: one or more
+
+For example, if you expect one or more string arguments: `string*`. Named arguments are almost always optional, so these would look like: `named:distinct?`. Optional or multi-arity arguments should always be the last parameters.
+
+#### Checking with a function
+
+You can also define your own function to check the arguments passed to your custom VALVE function. This function needs two parameters:
+* `config`: VALVE configuration dictionary
+* `args`: a list of parsed args passed to the function
+
+The function should return a string error message if any error was found, otherwise, it should return `None`. The custom functions are useful for when you want to validate more than just the structure, for example, if you expect exactly one table name:
+```python
+def validate_foo(config, args, table, column, row_idx, value):
+    ...
+
+def check_foo(config, args):
+    if len(args) > 1:
+        # more than one arguments were passed
+        return "foo expects one argument"
+    if args[0]["type"] != "string":
+        # the argument is not a string
+        return "foo argument 1 must be of type 'string'"
+    if args[0]["value"] not in config["table_details"]:
+        # the argument is not a valid table name
+        return "foo argument 1 must be a table name from inputs"
+
+valve.validate(
+    "inputs/",
+    functions={
+        "foo": {
+            "usage": "foo(table)",
+            "check": check_foo,
             "validate": validate_foo
         }
     }
