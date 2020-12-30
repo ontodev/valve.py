@@ -350,7 +350,7 @@ def configure_rules(config):
     rows = config["table_details"]["rule"]["rows"]
 
     # Check structure & contents of field table
-    messages = check_rows(config, rule_schema, "field", rows)
+    messages = check_rows(config, rule_schema, "rule", rows)
     messages.extend(check_config_contents(config, "rule", rule_conditions, rows))
 
     table_rules = {}
@@ -624,7 +624,7 @@ def check_arg(config, table, arg, expected):
             else:
                 errors.append(err)
         if not valid:
-            return "; ".join(errors)
+            return " or ".join(errors)
 
     elif expected.startswith("named:"):
         narg = expected[6:]
@@ -1467,26 +1467,6 @@ def parsed_to_str(condition):
 
 
 # ---------- GLOBALS ----------
-
-# Required headers for 'datatype' table
-datatype_headers = [
-    "datatype",
-    "parent",
-    "match",
-    "level",
-]
-
-# Required headers for 'field' table
-field_headers = ["table", "column", "condition"]
-
-# Required headers for 'rule' table
-rule_headers = [
-    "table",
-    "when column",
-    "when condition",
-    "then column",
-    "then condition",
-]
 
 # Builtin datatypes
 default_datatypes = {
