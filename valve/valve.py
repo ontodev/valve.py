@@ -217,7 +217,7 @@ def check_config_contents(config, table, conditions, rows):
     for row in rows:
         for column, condition in parsed_conditions:
             messages.extend(
-                validate_condition(config, condition, table, column, row_idx, row[column])
+                validate_condition(config, condition, table, column, row_idx, row.get(column, ""))
             )
         row_idx += 1
     return messages
@@ -258,6 +258,7 @@ def configure_fields(config):
     if "field" not in config["table_details"]:
         raise Exception(f"missing table 'field'")
     rows = config["table_details"]["field"]["rows"]
+    fields = config["table_details"]["field"]["fields"]
 
     # Check structure & contents of field table
     messages = check_rows(config, field_schema, "field", rows)
@@ -324,7 +325,17 @@ def configure_fields(config):
                 add_tree_name=tree_opts["add_tree_name"],
                 split_char=tree_opts["split_char"],
             )
-            messages.extend(errs)
+            for msg in errs:
+                if "table" not in msg:
+                    msg.update(
+                        {
+                            "table": "field",
+                            "cell": idx_to_a1(row_idx, fields.index("condition")),
+                            "rule": "tree function error",
+                            "level": "ERROR",
+                        }
+                    )
+                messages.append(msg)
             if tree:
                 config["trees"][f"{table}.{column}"] = tree
         else:
@@ -441,10 +452,14 @@ def get_table_details(paths, row_start=2):
             name = os.path.splitext(os.path.basename(path))[0]
             if name in tables:
                 raise Exception(f"Duplicate table name '{name}'")
+            if name in ["field", "rule", "datatype"]:
+                rows = list(reader)
+            else:
+                rows = list(reader)[row_start - 2 :]
             tables[name] = {
                 "path": path,
                 "fields": reader.fieldnames,
-                "rows": list(reader)[row_start - 2 :],
+                "rows": rows,
             }
     return tables
 
@@ -542,6 +557,7 @@ def check_args(config, table, name, args, expected):
     :return: error messages or None on success
     """
     i = 0
+    allowed_args = 0
     errors = []
     itr = iter(expected)
     e = next(itr)
@@ -562,10 +578,11 @@ def check_args(config, table, name, args, expected):
                 # this is OK here
                 break
             err = check_arg(config, table, args[i], e)
+            allowed_args += 1
             if err:
                 try:
-                    add_msg = f" or {err}"
                     e = next(itr)
+                    add_msg = f" or {err}"
                     continue
                 except StopIteration:
                     # no other expected args, add error
@@ -595,7 +612,7 @@ def check_args(config, table, name, args, expected):
             e = next(itr)
         except StopIteration:
             break
-    if i < len(args):
+    if i + allowed_args < len(args):
         errors.append(f"expects {i} argument(s), but {len(args)} were given")
     if errors:
         return name + " " + "; ".join(errors)
@@ -656,14 +673,6 @@ def check_arg(config, table, arg, expected):
             return "regex pattern requires a substitution"
         if expected.endswith("_match") and "replace" in arg:
             return "regex pattern should not have a substitution"
-
-    elif expected == "tree":
-        # tree must be in trees
-        if arg["type"] != "field":
-            return f"value must be a table-column pair representing a tree name"
-        tname = f'{arg["table"]}.{arg["column"]}'
-        if tname not in config["trees"]:
-            return f"'{tname}' must be a defined tree"
 
     else:
         raise Exception("Unknown argument type: " + expected)
@@ -1169,10 +1178,10 @@ def build_tree(
     tree = defaultdict(set)
     if add_tree_name:
         if add_tree_name not in trees:
-            errors.append(
-                {"message": f"{add_tree_name} must be defined before using it in a function"}
+            return (
+                None,
+                [{"message": f"{add_tree_name} must be defined before using it in a function"}],
             )
-            return None, errors
         tree = trees.get(add_tree_name, defaultdict(set))
 
     allowed_values = [row[child_column] for row in rows]
@@ -1532,12 +1541,12 @@ default_functions = {
     },
     "tree": {
         "usage": "tree(column, [treename, named=bool])",
-        "check": ["column", "tree?", "named:split?"],
+        "check": ["column", "field?", "named:split?"],
         "validate": None,
     },
     "under": {
         "usage": "under(treename, str, [direct=bool])",
-        "check": ["tree", "string", "named:direct?"],
+        "check": ["field", "string", "named:direct?"],
         "validate": validate_under,
     },
 }
