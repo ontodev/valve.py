@@ -1444,7 +1444,7 @@ def parsed_to_str(condition):
             col = f'"{col}"'
         return f"{table}.{col}"
     if cond_type == "named_arg":
-        name = condition["name"]
+        name = condition["key"]
         val = condition["value"]
         if " " in val:
             val = f'"{val}"'
