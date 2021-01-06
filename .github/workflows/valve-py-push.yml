@@ -2,7 +2,10 @@
 
 name: Send dispatch
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
 
 jobs:
   valve_py_push:
