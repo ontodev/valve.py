@@ -8,9 +8,9 @@ jobs:
   valve_py_push:
     runs-on: ubuntu-latest
     steps:
-    - name: Send dispatch
+    - name: Send Dispatch
       uses: peter-evans/repository-dispatch@v1
       with:
         token: ${{ secrets.PAT_TOKEN }}
         repository: ontodev/valve
-        event-type: valve_py_push
+        event-type: valve-py-push
