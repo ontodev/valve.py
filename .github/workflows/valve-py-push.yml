@@ -1,0 +1,16 @@
+# This workflow will send a trigger to the main valve repository to run the valve.py integration tests
+
+name: Send dispatch
+
+on: [push]
+
+jobs:
+  valve_py_push:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Send dispatch
+      uses: peter-evans/repository-dispatch@v1
+      with:
+        token: ${{ secrets.PAT_TOKEN }}
+        repository: ontodev/valve
+        event-type: valve_py_push
