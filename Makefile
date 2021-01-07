@@ -10,7 +10,7 @@
 # 9. Get the first result and convert to a Python dictionary
 # 10. Format using black
 
-build:
+build build/distinct:
 	mkdir -p $@
 
 build/valve_grammar.ne: | build
@@ -35,12 +35,29 @@ valve/parse.py: build/valve_grammar.py
 	sed -e "s/parse(text))/parse(text)).to_dict()/g" > $@
 	black --line-length 100 $@
 
-
-PYTHON_FILES := valve tests
-
-.PHONY: test
-test:
+.PHONY: unit-test
+unit-test:
 	pytest tests
+
+.PHONY: integration-test
+integration-test:
+	make python-diff
+	make python-diff-distinct
+
+valve-main:
+	git clone https://github.com/ontodev/valve.git $@ && cd $@ && git checkout tests
+
+build/errors.tsv: valve-main | build
+	valve valve-main/tests/inputs -o $@ || true
+
+build/errors-distinct.tsv: valve-main | build/distinct
+	valve valve-main/tests/inputs -d build/distinct -o $@ || true
+
+python-diff: valve-main build/errors.tsv
+	python3 valve-main/tests/compare.py valve-main/tests/errors.tsv build/errors.tsv
+
+python-diff-distinct: valve-main build/errors-distinct.tsv
+	python3 valve-main/tests/compare.py valve-main/tests/errors.tsv build/errors.tsv
 
 .PHONY: lint
 lint:
