@@ -20,7 +20,6 @@ jobs:
       with:
         repository: ontodev/valve
         path: valve-main
-        ref: tests
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
       with:

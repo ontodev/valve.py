@@ -45,7 +45,7 @@ integration-test:
 	make python-diff-distinct
 
 valve-main:
-	git clone https://github.com/ontodev/valve.git $@ && cd $@ && git checkout tests
+	git clone https://github.com/ontodev/valve.git $@
 
 build/errors.tsv: valve-main | build
 	valve valve-main/tests/inputs -o $@ || true
