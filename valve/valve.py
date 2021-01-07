@@ -1395,8 +1395,6 @@ def has_ancestor(tree, ancestor, node, direct=False):
     if node not in tree:
         return False
     parents = tree[node]
-    logging.error(node)
-    logging.error(parents)
     if ancestor in parents:
         return True
     if direct:
