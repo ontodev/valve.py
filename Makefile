@@ -1,3 +1,5 @@
+## Grammar
+#
 # Generate grammar, then ...
 # 1. Remove init babel from first line
 # 2. Encase grammar in triple quotes to allow for line breaks
@@ -35,14 +37,20 @@ valve/parse.py: build/valve_grammar.py
 	sed -e "s/parse(text))/parse(text)).to_dict()/g" > $@
 	black --line-length 100 $@
 
-.PHONY: unit-test
-unit-test:
-	pytest tests
 
-.PHONY: integration-test
-integration-test:
-	make python-diff
-	make python-diff-distinct
+## Linting
+
+.PHONY: lint
+lint:
+	flake8 --max-line-length 100 --ignore E203,W503 $(PYTHON_FILES)
+	black --line-length 100 --quiet --check $(PYTHON_FILES)
+
+.PHONY: format
+format:
+	black --line-length 100 $(PYTHON_FILES)
+
+
+## Testing
 
 valve-main:
 	git clone https://github.com/ontodev/valve.git $@
@@ -59,11 +67,19 @@ python-diff: valve-main build/errors.tsv
 python-diff-distinct: valve-main build/errors-distinct.tsv
 	python3 valve-main/tests/compare.py valve-main/tests/errors.tsv build/errors.tsv
 
-.PHONY: lint
-lint:
-	flake8 --max-line-length 100 --ignore E203,W503 $(PYTHON_FILES)
-	black --line-length 100 --quiet --check $(PYTHON_FILES)
+.PHONY: unit-test
+unit-test:
+	pytest tests
 
-.PHONY: format
-format:
-	black --line-length 100 $(PYTHON_FILES)
+.PHONY: integration-test
+integration-test:
+	make python-diff
+	make python-diff-distinct
+	@echo "SUCCESS: Tests ran as expected."
+
+.PHONY: test
+test: unit-test integration-test
+
+.PHONY: clean
+clean:
+	rm -rf build valve-main
