@@ -1,3 +1,5 @@
+## Grammar
+#
 # Generate grammar, then ...
 # 1. Remove init babel from first line
 # 2. Encase grammar in triple quotes to allow for line breaks
@@ -10,7 +12,7 @@
 # 9. Get the first result and convert to a Python dictionary
 # 10. Format using black
 
-build:
+build build/distinct:
 	mkdir -p $@
 
 build/valve_grammar.ne: | build
@@ -36,11 +38,7 @@ valve/parse.py: build/valve_grammar.py
 	black --line-length 100 $@
 
 
-PYTHON_FILES := valve tests
-
-.PHONY: test
-test:
-	pytest tests
+## Linting
 
 .PHONY: lint
 lint:
@@ -50,3 +48,38 @@ lint:
 .PHONY: format
 format:
 	black --line-length 100 $(PYTHON_FILES)
+
+
+## Testing
+
+valve-main:
+	git clone https://github.com/ontodev/valve.git $@
+
+build/errors.tsv: valve-main | build
+	valve valve-main/tests/inputs -o $@ || true
+
+build/errors-distinct.tsv: valve-main | build/distinct
+	valve valve-main/tests/inputs -d build/distinct -o $@ || true
+
+python-diff: valve-main build/errors.tsv
+	python3 valve-main/tests/compare.py valve-main/tests/errors.tsv build/errors.tsv
+
+python-diff-distinct: valve-main build/errors-distinct.tsv
+	python3 valve-main/tests/compare.py valve-main/tests/errors.tsv build/errors.tsv
+
+.PHONY: unit-test
+unit-test:
+	pytest tests
+
+.PHONY: integration-test
+integration-test:
+	make python-diff
+	make python-diff-distinct
+	@echo "SUCCESS: Tests ran as expected."
+
+.PHONY: test
+test: unit-test integration-test
+
+.PHONY: clean
+clean:
+	rm -rf build valve-main
