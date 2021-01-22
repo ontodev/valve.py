@@ -153,6 +153,8 @@ def validate_table(config, table):
 
                         # Retrieve the "then" value to check if it meets the "then condition"
                         then_value = row[then_column]
+                        if not then_value:
+                            then_value = ""
 
                         messages = validate_condition(
                             config,
