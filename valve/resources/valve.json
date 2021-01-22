@@ -81,9 +81,9 @@
               "parent": {"type": "string"},
               "match": {"type": "string"},
               "level": {"$ref": "#/definitions/level"},
-              "description": {"type": "string"},
-              "instructions": {"type": "string"},
-              "replace": {"type": "string"}
+              "description": {"type": ["string", "null"]},
+              "instructions": {"type": ["string", "null"]},
+              "replace": {"type": ["string", "null"]}
           },
           "required": ["datatype", "parent", "match", "level"]
       },
