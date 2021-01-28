@@ -110,7 +110,7 @@ def validate_table(config, table):
     table_details = config["table_details"]
 
     fields = config["table_fields"].get(table, {})
-    fields.update(config.get("*", {}))
+    fields.update(config["table_fields"].get("*", {}))
     rules = None
     if "table_rules" in config:
         rules = config["table_rules"].get(table, {})
@@ -597,7 +597,14 @@ def check_args(config, table, name, args, expected):
             for a in args[i:]:
                 err = check_arg(config, table, a, e)
                 if err:
-                    errors.append(f"argument {i + 1} {err}{add_msg}")
+                    try:
+                        # check for another expected arg
+                        e = next(itr)
+                        add_msg = f" or {err}"
+                        break
+                    except StopIteration:
+                        # no other expected args, add error
+                        errors.append(f"argument {i + 1} {err}{add_msg}")
                 i += 1
         else:
             # exactly one
@@ -973,6 +980,17 @@ def validate_in(config, args, table, column, row_idx, value):
     """
     table_details = config["table_details"]
     allowed = []
+    # Check if last arg is match_case
+    last_arg = args.pop()
+    match_case = True
+    if last_arg["type"] == "named_arg":
+        # match_case is the only named flag allowed
+        value = last_arg["value"]
+        if value.lower() == "false":
+            match_case = False
+    else:
+        # If not, add it back to args
+        args.append(last_arg)
     for arg in args:
         if arg["type"] == "string":
             arg_val = arg["value"]
@@ -983,9 +1001,14 @@ def validate_in(config, args, table, column, row_idx, value):
             table_name = arg["table"]
             column_name = arg["column"]
             source_rows = table_details[table_name]["rows"]
-            allowed_values = [x[column_name] for x in source_rows if column_name in x]
-            if value in allowed_values:
-                return []
+            if match_case:
+                allowed_values = [x[column_name] for x in source_rows if column_name in x]
+                if value in allowed_values:
+                    return []
+            else:
+                allowed_values = [x[column_name].lower() for x in source_rows if column_name in x]
+                if value.lower() in allowed_values:
+                    return []
             allowed.append(f"{table_name}.{column_name}")
     message = f"'{value}' must be in: " + ", ".join(allowed)
     return [error(config, table, column, row_idx, message)]
@@ -1522,7 +1545,10 @@ default_functions = {
         "check": ["expression", "field*"],
         "validate": validate_distinct,
     },
-    "in": {"usage": "in(value+)", "check": ["(string or field)+"], "validate": validate_in},
+    "in": {
+        "usage": "in(value+)",
+        "check": ["(string or field)+", "named:match_case?"],
+        "validate": validate_in},
     "list": {
         "usage": "list(str, expression)",
         "check": ["string", "expression"],
