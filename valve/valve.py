@@ -164,7 +164,7 @@ def validate_table(config, table):
                             then_column,
                             row_idx,
                             then_value,
-                            message=rule["message"]
+                            message=rule["message"],
                         )
                         if messages:
                             for m in messages:
@@ -847,13 +847,7 @@ def validate_datatype(config, condition, table, column, row_idx, value):
                     suggestion = re.sub(m.group(1), m.group(2), value)
                 return [
                     error(
-                        config,
-                        table,
-                        column,
-                        row_idx,
-                        message,
-                        level=level,
-                        suggestion=suggestion,
+                        config, table, column, row_idx, message, level=level, suggestion=suggestion,
                     )
                 ]
     return []
@@ -1547,24 +1541,14 @@ def parsed_to_str(condition):
 
 # Builtin datatypes
 default_datatypes = {
-    "blank": {
-        "datatype": "blank",
-        "parent": "",
-        "match": re.compile(r"^$"),
-        "level": "ERROR",
-    },
+    "blank": {"datatype": "blank", "parent": "", "match": re.compile(r"^$"), "level": "ERROR",},
     "datatype_label": {
         "datatype": "datatype_label",
         "parent": "",
         "match": re.compile(r"[A-Za-z][A-Za-z0-9_-]+"),
         "level": "ERROR",
     },
-    "regex": {
-        "datatype": "regex",
-        "parent": "",
-        "match": re.compile(r"^/.+/$"),
-        "level": "ERROR",
-    },
+    "regex": {"datatype": "regex", "parent": "", "match": re.compile(r"^/.+/$"), "level": "ERROR",},
     "regex_sub": {
         "datatype": "regex_sub",
         "parent": "",
