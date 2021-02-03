@@ -127,9 +127,10 @@ def validate_table(config, table):
                 # Get the expected field type
                 # This will be validated based on the given datatypes
                 parsed_type = fields[field]["parsed"]
+                error_message = fields[field]["message"]
                 # all values in this field must match the type
                 messages = validate_condition(
-                    config, parsed_type, table_name, field, row_idx, value
+                    config, parsed_type, table_name, field, row_idx, value, message=error_message
                 )
                 if messages:
                     field_id = fields[field]["field ID"]
@@ -345,6 +346,7 @@ def configure_fields(config):
             field_types[column] = {
                 "parsed": parsed_condition,
                 "field ID": row_idx,
+                "message": row.get("message"),
             }
             table_fields[table] = field_types
     config["table_fields"] = table_fields
@@ -782,7 +784,7 @@ def parse_condition(config, table, column, condition):
 # --------- CONDITION VALIDATION ----------
 
 
-def validate_condition(config, condition, table, column, row_idx, value):
+def validate_condition(config, condition, table, column, row_idx, value, message=None):
     """Run validation for a condition on a value.
 
     :param config: valve config dict
@@ -791,13 +793,14 @@ def validate_condition(config, condition, table, column, row_idx, value):
     :param column: column name
     :param row_idx: row number
     :param value: value to validate
+    :param message: message to override default error messages
     :return: list of messages (empty on success)
     """
     if condition["type"] == "function":
         name = condition["name"]
         args = condition["args"]
         function = config["functions"][name]
-        return function["validate"](config, args, table, column, row_idx, value)
+        return function["validate"](config, args, table, column, row_idx, value, message=message)
     elif condition["type"] == "string":
         return validate_datatype(config, condition, table, column, row_idx, value)
     else:
@@ -850,7 +853,7 @@ def validate_datatype(config, condition, table, column, row_idx, value):
 # ---------- VALVE FUNCTIONS ----------
 
 
-def validate_any(config, args, table, column, row_idx, value):
+def validate_any(config, args, table, column, row_idx, value, message=None):
     """Method for the VALVE 'any' function.
 
     :param config: valve config dictionary
@@ -859,6 +862,7 @@ def validate_any(config, args, table, column, row_idx, value):
     :param column: column to run distinct on
     :param row_idx: current row number
     :param value: value to run any on
+    :param message: message to override default error messages
     :return: List of messages (empty on success)
     """
     conditions = []
@@ -869,11 +873,14 @@ def validate_any(config, args, table, column, row_idx, value):
             return []
         conditions.append(parsed_to_str(arg))
     # If we get here, no condition was met
-    message = f"'{value}' must meet one of: " + ", ".join(conditions)
+    if message:
+        message = message.replace("{value}", value)
+    else:
+        message = f"'{value}' must meet one of: " + ", ".join(conditions)
     return [error(config, table, column, row_idx, message)]
 
 
-def validate_concat(config, args, table, column, row_idx, value):
+def validate_concat(config, args, table, column, row_idx, value, message=None):
     """Method for the VALVE 'concat' function.
 
     :param config: valve config dictionary
@@ -882,6 +889,7 @@ def validate_concat(config, args, table, column, row_idx, value):
     :param column: column to run distinct on
     :param row_idx: current row number
     :param value: value to run concat on
+    :param message: message to override default error messages
     :return: List of messages (empty on success)
     """
     datatypes = config["datatypes"]
@@ -917,12 +925,14 @@ def validate_concat(config, args, table, column, row_idx, value):
     while idx < len(validate_values):
         v = validate_values[idx]
         condition = validate_conditions[idx]
-        messages.extend(validate_condition(config, condition, table, column, row_idx, v))
+        messages.extend(
+            validate_condition(config, condition, table, column, row_idx, v, message=message)
+        )
         idx += 1
     return messages
 
 
-def validate_distinct(config, args, table, column, row_idx, value):
+def validate_distinct(config, args, table, column, row_idx, value, message=None):
     """Method for the VALVE 'distinct' function.
 
     :param config: valve config dictionary
@@ -931,6 +941,7 @@ def validate_distinct(config, args, table, column, row_idx, value):
     :param column: column to run distinct on
     :param row_idx: current row number
     :param value: value to run distinct on
+    :param message: message to override default error messages
     :return: List of messages (empty on success)
     """
     table_details = config["table_details"]
@@ -964,12 +975,15 @@ def validate_distinct(config, args, table, column, row_idx, value):
 
     # Create the error messages
     if duplicate_locs:
-        message = f"'{value}' must be distinct with value(s) at: " + ", ".join(duplicate_locs)
+        if message:
+            message = message.replace("{value}", value)
+        else:
+            message = f"'{value}' must be distinct with value(s) at: " + ", ".join(duplicate_locs)
         return [error(config, table, column, row_idx, message)]
     return []
 
 
-def validate_in(config, args, table, column, row_idx, value):
+def validate_in(config, args, table, column, row_idx, value, message=None):
     """Method for the VALVE 'in' function. The value must be one of the arguments.
 
     :param config: valve config dictionary
@@ -978,6 +992,7 @@ def validate_in(config, args, table, column, row_idx, value):
     :param column: column name
     :param row_idx: row number from values
     :param value: value to run in on
+    :param message: message to override default error messages
     :return: List of messages (empty on success)
     """
     table_details = config["table_details"]
@@ -1012,11 +1027,14 @@ def validate_in(config, args, table, column, row_idx, value):
                 if value.lower() in allowed_values:
                     return []
             allowed.append(f"{table_name}.{column_name}")
-    message = f"'{value}' must be in: " + ", ".join(allowed)
+    if message:
+        message = message.replace("{value}", value)
+    else:
+        message = f"'{value}' must be in: " + ", ".join(allowed)
     return [error(config, table, column, row_idx, message)]
 
 
-def validate_list(config, args, table, column, row_idx, value):
+def validate_list(config, args, table, column, row_idx, value, message=None):
     """Method for the VALVE 'list' function.
 
     :param config: valve config dictionary
@@ -1025,13 +1043,14 @@ def validate_list(config, args, table, column, row_idx, value):
     :param column: column name
     :param row_idx: row number from values
     :param value: value to run list on
+    :param message: message to override default error messages
     :return: List of messages (empty on success)
     """
     split_char = args[0]["value"]
     expr = args[1]
     errs = []
     for v in value.split(split_char):
-        errs.extend(validate_condition(config, expr, table, column, row_idx, v))
+        errs.extend(validate_condition(config, expr, table, column, row_idx, v, message=message))
     if errs:
         messages = []
         for err in errs:
@@ -1041,7 +1060,7 @@ def validate_list(config, args, table, column, row_idx, value):
     return []
 
 
-def validate_lookup(config, args, table, column, row_idx, value):
+def validate_lookup(config, args, table, column, row_idx, value, message=None):
     """Method for VALVE 'lookup' function.
 
     :param config: valve config dictionary
@@ -1050,6 +1069,7 @@ def validate_lookup(config, args, table, column, row_idx, value):
     :param column: column name
     :param row_idx: row number from values
     :param value: value to run lookup on
+    :param message: message to override default error messages
     :return: List of messages (empty on success)
     """
     table_details = config["table_details"]
@@ -1076,11 +1096,14 @@ def validate_lookup(config, args, table, column, row_idx, value):
                 message = f"'{value}' must be '{expected}'"
                 return [error(config, table, column, row_idx, message, suggestion=expected)]
             return []
-    message = f"'{value}' must present in {search_table}.{return_column}"
+    if message:
+        message = message.replace("{value}", value)
+    else:
+        message = f"'{value}' must present in {search_table}.{return_column}"
     return [error(config, table, column, row_idx, message)]
 
 
-def validate_not(config, args, table, column, row_idx, value):
+def validate_not(config, args, table, column, row_idx, value, message=None):
     """Method for the VALVE 'not' function.
 
     :param config: valve config dictionary
@@ -1089,6 +1112,7 @@ def validate_not(config, args, table, column, row_idx, value):
     :param column: column name
     :param row_idx: row number from values
     :param value: value to run not on
+    :param message: message to override default error messages
     :return: List of messages (empty on success)
     """
     for arg in args:
@@ -1096,14 +1120,17 @@ def validate_not(config, args, table, column, row_idx, value):
         if not messages:
             # If any condition *is* met (no errors), this fails
             unparsed = parsed_to_str(arg)
-            message = f"'{value}' must not be '{unparsed}'"
-            if unparsed == "blank":
-                message = f"value must not be blank"
+            if message:
+                message = message.replace("{value}", value)
+            else:
+                message = f"'{value}' must not be '{unparsed}'"
+                if unparsed == "blank":
+                    message = f"value must not be blank"
             return [error(config, table, column, row_idx, message)]
     return []
 
 
-def validate_sub(config, args, table, column, row_idx, value):
+def validate_sub(config, args, table, column, row_idx, value, message=None):
     """Method for the VALVE 'sub' function.
 
     :param config: valve config dictionary
@@ -1112,6 +1139,7 @@ def validate_sub(config, args, table, column, row_idx, value):
     :param column: column name
     :param row_idx: row number from values
     :param value: value to run list on
+    :param message: message to override default error messages
     :return: List of messages (empty on success)
     """
     regex = args[0]
@@ -1142,10 +1170,10 @@ def validate_sub(config, args, table, column, row_idx, value):
         value = re.sub(pattern, regex["replace"], value, count=count)
 
     # Handle the expression (dataype or function)
-    return validate_condition(config, subfunc, table, column, row_idx, value)
+    return validate_condition(config, subfunc, table, column, row_idx, value, message=message)
 
 
-def validate_under(config, args, table, column, row_idx, value):
+def validate_under(config, args, table, column, row_idx, value, message=None):
     """Method for VALVE 'under' function.
 
     :param config: valve config dictionary
@@ -1154,6 +1182,7 @@ def validate_under(config, args, table, column, row_idx, value):
     :param column: column name
     :param row_idx: row number from values
     :param value: value to run under on
+    :param message: message to override default error messages
     :return: List of messages (empty on success)
     """
     trees = config["trees"]
@@ -1171,9 +1200,12 @@ def validate_under(config, args, table, column, row_idx, value):
     if has_ancestor(tree, ancestor, value, direct=direct):
         return []
 
-    message = f"'{value}' must be equal to or under '{ancestor}' from {tree_name}"
-    if direct:
-        message = f"'{value}' must be a direct subclass of '{ancestor}' from {tree_name}"
+    if message:
+        message = message.replace("{value}", value)
+    else:
+        message = f"'{value}' must be equal to or under '{ancestor}' from {tree_name}"
+        if direct:
+            message = f"'{value}' must be a direct subclass of '{ancestor}' from {tree_name}"
     return [error(config, table, column, row_idx, message)]
 
 
@@ -1550,7 +1582,8 @@ default_functions = {
     "in": {
         "usage": "in(value+)",
         "check": ["(string or field)+", "named:match_case?"],
-        "validate": validate_in},
+        "validate": validate_in,
+    },
     "list": {
         "usage": "list(str, expression)",
         "check": ["string", "expression"],
