@@ -164,17 +164,20 @@ def validate_table(config, table):
                             then_column,
                             row_idx,
                             then_value,
+                            message=rule["message"]
                         )
                         if messages:
                             for m in messages:
-                                msg = (
-                                    f"because '{value}' is '{parsed_to_str(when_condition)}', "
-                                    + m["message"]
-                                )
+                                if rule["message"]:
+                                    msg = m["message"]
+                                else:
+                                    msg = (
+                                        f"because '{value}' is '{parsed_to_str(when_condition)}', "
+                                        + m["message"]
+                                    )
                                 m.update(
                                     {
                                         "rule ID": "rule:" + str(rule["rule ID"]),
-                                        "rule": rule["message"],
                                         "level": rule["level"],
                                         "message": msg,
                                     }
@@ -428,7 +431,7 @@ def configure_rules(config):
                 "column": then_column,
                 "then_condition": parsed_then_condition,
                 "level": row.get("level", "ERROR"),
-                "message": row.get("description", None),
+                "message": row.get("message", None),
                 "rule ID": row_idx,
             }
         )
@@ -825,7 +828,13 @@ def validate_datatype(config, condition, table, column, row_idx, value):
     ancestors.insert(0, name)
     for name in ancestors:
         datatype = datatypes[name]
-        description = datatype.get("description", name)
+        message = datatype.get("message")
+        if not value:
+            value = ""
+        if message:
+            message = message.replace("{value}", value)
+        else:
+            message = f"'{value}' must be of datatype '{name}'"
         level = datatype.get("level", "ERROR")
         if datatype.get("match"):
             if not datatype["match"].match(value):
@@ -842,7 +851,7 @@ def validate_datatype(config, condition, table, column, row_idx, value):
                         table,
                         column,
                         row_idx,
-                        description,
+                        message,
                         level=level,
                         suggestion=suggestion,
                     )
@@ -902,7 +911,9 @@ def validate_concat(config, args, table, column, row_idx, value, message=None):
             if arg_val in datatypes:
                 validate_conditions.append(arg)
                 continue
-            validate_values.append(rem.split(arg_val, 1)[0])
+            pre = rem.split(arg_val, 1)[0]
+            if pre:
+                validate_values.append(pre)
             try:
                 rem = rem.split(arg_val, 1)[1]
             except IndexError:
@@ -1302,7 +1313,7 @@ def get_tree_options(tree_function):
         x = 1
         while x < len(args):
             arg = args[x]
-            if "name" in arg and arg["name"] == "split":
+            if "key" in arg and arg["key"] == "split":
                 split_char = arg["value"]
             elif "table" in arg:
                 add_tree_name = f'{arg["table"]}.{arg["column"]}'
@@ -1541,28 +1552,24 @@ default_datatypes = {
         "parent": "",
         "match": re.compile(r"^$"),
         "level": "ERROR",
-        "description": "an empty string",
     },
     "datatype_label": {
         "datatype": "datatype_label",
         "parent": "",
         "match": re.compile(r"[A-Za-z][A-Za-z0-9_-]+"),
         "level": "ERROR",
-        "description": "a word that starts with a letter and may contain dashes and underscores",
     },
     "regex": {
         "datatype": "regex",
         "parent": "",
         "match": re.compile(r"^/.+/$"),
         "level": "ERROR",
-        "description": "A regex match",
     },
     "regex_sub": {
         "datatype": "regex_sub",
         "parent": "",
         "match": re.compile(r"^s/.+[^\\]|.*(?<!/)/.*[^\\]/.+[^\\]|.*(?<!/)/.*[^\\]/.*$"),
         "level": "ERROR",
-        "description": "A regex substitution",
     },
 }
 
