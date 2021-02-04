@@ -172,7 +172,7 @@ def validate_table(config, table):
                                     msg = m["message"]
                                 else:
                                     msg = (
-                                        f"because '{value}' is '{parsed_to_str(when_condition)}', "
+                                        f"because '{value}' is '{parsed_to_str(config, when_condition)}', "
                                         + m["message"]
                                     )
                                 m.update(
@@ -509,7 +509,7 @@ def check_function(config, table, column, parsed):
     :param parsed: parsed function
     :return: string error message or None on success
     """
-    condition = parsed_to_str(parsed)
+    condition = parsed_to_str(config, parsed)
     name = parsed["name"]
     if name not in config["functions"]:
         return f"unrecognized function '{name}'"
@@ -523,7 +523,7 @@ def check_function(config, table, column, parsed):
             position = err.parent.path[0] + 1
             instance = err.parent.instance
             try:
-                instance = parsed_to_str(instance)
+                instance = parsed_to_str(config, instance)
             except ValueError:
                 pass
             message = (
@@ -832,7 +832,9 @@ def validate_datatype(config, condition, table, column, row_idx, value):
         if not value:
             value = ""
         if message:
-            message = message.replace("{value}", value)
+            message = update_message(
+                table, column, row_idx, parsed_to_str(config, condition), value, message
+            )
         else:
             message = f"'{value}' must be of datatype '{name}'"
         level = datatype.get("level", "ERROR")
@@ -874,10 +876,11 @@ def validate_any(config, args, table, column, row_idx, value, message=None):
         if not messages:
             # As long as one is met, this passes
             return []
-        conditions.append(parsed_to_str(arg))
+        conditions.append(parsed_to_str(config, arg))
     # If we get here, no condition was met
     if message:
-        message = message.replace("{value}", value)
+        condition = parsed_to_str(config, {"type": "function", "name": "any", "args": args})
+        message = update_message(table, column, row_idx, condition, value, message)
     else:
         message = f"'{value}' must meet one of: " + ", ".join(conditions)
     return [error(config, table, column, row_idx, message)]
@@ -912,15 +915,14 @@ def validate_concat(config, args, table, column, row_idx, value, message=None):
                 rem = rem.split(arg_val, 1)[1]
             except IndexError:
                 # Does not match pattern given in concat
-                return [
-                    error(
-                        config,
-                        table,
-                        column,
-                        row_idx,
-                        f"'{value}' must contain substring '{arg_val}'",
+                if message:
+                    condition = parsed_to_str(
+                        config, {"type": "function", "name": "concat", "args": args}
                     )
-                ]
+                    message = update_message(table, column, row_idx, condition, value, message)
+                else:
+                    message = f"'{value}' must contain substring '{arg_val}'"
+                return [error(config, table, column, row_idx, message,)]
         else:
             validate_conditions.append(arg)
     if rem:
@@ -981,7 +983,10 @@ def validate_distinct(config, args, table, column, row_idx, value, message=None)
     # Create the error messages
     if duplicate_locs:
         if message:
-            message = message.replace("{value}", value)
+            condition = parsed_to_str(
+                config, {"type": "function", "name": "distinct", "args": args}
+            )
+            message = update_message(table, column, row_idx, condition, value, message)
         else:
             message = f"'{value}' must be distinct with value(s) at: " + ", ".join(duplicate_locs)
         return [error(config, table, column, row_idx, message)]
@@ -1033,7 +1038,8 @@ def validate_in(config, args, table, column, row_idx, value, message=None):
                     return []
             allowed.append(f"{table_name}.{column_name}")
     if message:
-        message = message.replace("{value}", value)
+        condition = parsed_to_str(config, {"type": "function", "name": "in", "args": args})
+        message = update_message(table, column, row_idx, condition, value, message)
     else:
         message = f"'{value}' must be in: " + ", ".join(allowed)
     return [error(config, table, column, row_idx, message)]
@@ -1102,7 +1108,8 @@ def validate_lookup(config, args, table, column, row_idx, value, message=None):
                 return [error(config, table, column, row_idx, message, suggestion=expected)]
             return []
     if message:
-        message = message.replace("{value}", value)
+        condition = parsed_to_str(config, {"type": "function", "name": "lookup", "args": args})
+        message = update_message(table, column, row_idx, condition, value, message)
     else:
         message = f"'{value}' must present in {search_table}.{return_column}"
     return [error(config, table, column, row_idx, message)]
@@ -1124,10 +1131,11 @@ def validate_not(config, args, table, column, row_idx, value, message=None):
         messages = validate_condition(config, arg, table, column, row_idx, value)
         if not messages:
             # If any condition *is* met (no errors), this fails
-            unparsed = parsed_to_str(arg)
             if message:
-                message = message.replace("{value}", value)
+                condition = parsed_to_str(config, {"type": "function", "name": "not", "args": args})
+                message = update_message(table, column, row_idx, condition, value, message)
             else:
+                unparsed = parsed_to_str(config, arg)
                 message = f"'{value}' must not be '{unparsed}'"
                 if unparsed == "blank":
                     message = f"value must not be blank"
@@ -1206,7 +1214,8 @@ def validate_under(config, args, table, column, row_idx, value, message=None):
         return []
 
     if message:
-        message = message.replace("{value}", value)
+        condition = parsed_to_str(config, {"type": "function", "name": "under", "args": args})
+        message = update_message(table, column, row_idx, condition, value, message)
     else:
         message = f"'{value}' must be equal to or under '{ancestor}' from {tree_name}"
         if direct:
@@ -1494,18 +1503,19 @@ def idx_to_a1(row, col):
     return f"{column_label}{row}"
 
 
-def parsed_to_str(condition):
+def parsed_to_str(config, condition):
     """Convert a parsed condition back to its original string.
 
+    :param config: VALVE config dict
     :param condition: parsed condition to convert
     :return: string version of condition
     """
     cond_type = condition["type"]
     if cond_type == "string":
         val = condition["value"]
-        if " " in val:
-            return f'"{val}"'
-        return val
+        if val in config["datatypes"]:
+            return val
+        return f'"{val}"'
     if cond_type == "field":
         table = condition["table"]
         col = condition["column"]
@@ -1530,25 +1540,45 @@ def parsed_to_str(condition):
     if cond_type == "function":
         args = []
         for arg in condition["args"]:
-            args.append(parsed_to_str(arg))
+            args.append(parsed_to_str(config, arg))
         name = condition["name"]
         args = ", ".join(args)
         return f"{name}({args})"
     raise ValueError("Unknown condition type: " + cond_type)
 
 
+def update_message(table, column, row_idx, condition, value, message):
+    """Update a user-defined message with variables.
+
+    :param table: table name
+    :param column: column name
+    :param row_idx: row number
+    :param condition: condition that failed
+    :param value: value that failed
+    :param message: user-defined message
+    :return: message with variables replaced
+    """
+    return (
+        message.replace("{table}", table)
+        .replace("{column}", column)
+        .replace("{row_idx}", str(row_idx))
+        .replace("{condition}", condition)
+        .replace("{value}", value)
+    )
+
+
 # ---------- GLOBALS ----------
 
 # Builtin datatypes
 default_datatypes = {
-    "blank": {"datatype": "blank", "parent": "", "match": re.compile(r"^$"), "level": "ERROR",},
+    "blank": {"datatype": "blank", "parent": "", "match": re.compile(r"^$"), "level": "ERROR"},
     "datatype_label": {
         "datatype": "datatype_label",
         "parent": "",
         "match": re.compile(r"[A-Za-z][A-Za-z0-9_-]+"),
         "level": "ERROR",
     },
-    "regex": {"datatype": "regex", "parent": "", "match": re.compile(r"^/.+/$"), "level": "ERROR",},
+    "regex": {"datatype": "regex", "parent": "", "match": re.compile(r"^/.+/$"), "level": "ERROR"},
     "regex_sub": {
         "datatype": "regex_sub",
         "parent": "",
@@ -1559,7 +1589,7 @@ default_datatypes = {
 
 # Builtin functions
 default_functions = {
-    "any": {"usage": "any(expression+)", "check": ["expression+"], "validate": validate_any,},
+    "any": {"usage": "any(expression+)", "check": ["expression+"], "validate": validate_any},
     "concat": {
         "usage": "concat(value+)",
         "check": ["(expression or string)+"],
@@ -1585,7 +1615,7 @@ default_functions = {
         "check": check_lookup,
         "validate": validate_lookup,
     },
-    "not": {"usage": "not(expression)", "check": ["expression"], "validate": validate_not,},
+    "not": {"usage": "not(expression)", "check": ["expression"], "validate": validate_not},
     "sub": {
         "usage": "sub(regex, expression)",
         "check": ["regex_sub", "expression"],
