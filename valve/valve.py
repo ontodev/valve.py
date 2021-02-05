@@ -135,7 +135,11 @@ def validate_table(config, table):
                 if messages:
                     field_id = fields[field]["field ID"]
                     for m in messages:
-                        m.update({"rule ID": "field:" + str(field_id), "level": "ERROR"})
+                        m.update({
+                            "rule ID": "field:" + str(field_id),
+                            "rule": fields[field]["column"],
+                            "level": "ERROR",
+                        })
                         errors.append(m)
 
             # Check for rules
@@ -349,6 +353,7 @@ def configure_fields(config):
             field_types[column] = {
                 "parsed": parsed_condition,
                 "field ID": row_idx,
+                "column": column,
                 "message": row.get("message"),
             }
             table_fields[table] = field_types
@@ -951,6 +956,11 @@ def validate_distinct(config, args, table, column, row_idx, value, message=None)
     :param message: message to override default error messages
     :return: List of messages (empty on success)
     """
+    arg = args[0]
+    messages = validate_condition(config, arg, table, column, row_idx, value)
+    if messages:
+        return messages
+
     table_details = config["table_details"]
     row_start = config["row_start"]
     base_rows = table_details[table]["rows"]
