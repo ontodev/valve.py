@@ -16,8 +16,8 @@ def test_has_ancestors():
 
 
 def test_parsed_to_str():
-    text = "tree(Label, external.Label, split=\", \")"
-    assert valve.parsed_to_str(valve.parse(text)) == text
+    text = "tree(\"Label\", external.Label, split=\", \")"
+    assert valve.parsed_to_str({"datatypes": {}}, valve.parse(text)) == text
 
 
 def test_idx_to_a1():
