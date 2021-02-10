@@ -182,6 +182,7 @@ def validate_table(config, table):
                                 m.update(
                                     {
                                         "rule ID": "rule:" + str(rule["rule ID"]),
+                                        "rule": then_column,
                                         "level": rule["level"],
                                         "message": msg,
                                     }
@@ -1293,6 +1294,7 @@ def build_tree(
                         "table": table_name,
                         "cell": idx_to_a1(row_idx, col_idx + 1),
                         "rule ID": "field:" + str(fn_row_idx),
+                        "rule": parent_column,
                         "level": "ERROR",
                         "message": msg,
                     }
