@@ -65,7 +65,7 @@ python-diff: valve-main build/errors.tsv
 	python3 valve-main/tests/compare.py valve-main/tests/errors.tsv build/errors.tsv
 
 python-diff-distinct: valve-main build/errors-distinct.tsv
-	python3 valve-main/tests/compare.py valve-main/tests/errors.tsv build/errors.tsv
+	python3 valve-main/tests/compare.py valve-main/tests/errors-distinct.tsv build/errors-distinct.tsv
 
 .PHONY: unit-test
 unit-test:
