@@ -1175,7 +1175,7 @@ def validate_sub(config, args, table, column, row_idx, value, message=None):
             flags = flags.replace("i", "")
         if flags:
             # a and x flags can be inserted into the pattern
-            pattern = f"?({flags}){pattern}"
+            pattern = f"(?{flags}){pattern}"
 
     if ignore_case:
         value = re.sub(pattern, regex["replace"], value, count=count, flags=re.IGNORECASE)
