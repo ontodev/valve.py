@@ -85,9 +85,7 @@ pass
 
 @Js
 def PyJs_flatten_0_(list, this, arguments, var=var):
-    var = Scope(
-        {"list": list, "this": this, "arguments": arguments, "flatten": PyJs_flatten_0_}, var
-    )
+    var = Scope({"list": list, "this": this, "arguments": arguments, "flatten": PyJs_flatten_0_}, var)
     var.registers(["list"])
 
     @Js
@@ -96,11 +94,7 @@ def PyJs_flatten_0_(list, this, arguments, var=var):
         var.registers(["a", "b"])
         return var.get("a").callprop(
             "concat",
-            (
-                var.get("flatten")(var.get("b"))
-                if var.get("Array").callprop("isArray", var.get("b"))
-                else var.get("b")
-            ),
+            (var.get("flatten")(var.get("b")) if var.get("Array").callprop("isArray", var.get("b")) else var.get("b")),
         )
 
     PyJs_anonymous_1_._set_name("anonymous")
@@ -113,18 +107,14 @@ var.put("flatten", PyJs_flatten_0_)
 
 @Js
 def PyJs_nonspace_2_(list, this, arguments, var=var):
-    var = Scope(
-        {"list": list, "this": this, "arguments": arguments, "nonspace": PyJs_nonspace_2_}, var
-    )
+    var = Scope({"list": list, "this": this, "arguments": arguments, "nonspace": PyJs_nonspace_2_}, var)
     var.registers(["list"])
 
     @Js
     def PyJs_anonymous_3_(item, this, arguments, var=var):
         var = Scope({"item": item, "this": this, "arguments": arguments}, var)
         var.registers(["item"])
-        return (var.get("item") and var.get("item").get("type")) and (
-            var.get("item").get("type") != Js("space")
-        )
+        return (var.get("item") and var.get("item").get("type")) and (var.get("item").get("type") != Js("space"))
 
     PyJs_anonymous_3_._set_name("anonymous")
     return var.get("flatten")(var.get("list")).callprop("filter", PyJs_anonymous_3_)
@@ -183,9 +173,7 @@ var.put("alias_3", var.get("id"))
 def PyJs_alias_4_8_(d, this, arguments, var=var):
     var = Scope({"d": d, "this": this, "arguments": arguments, "alias_4": PyJs_alias_4_8_}, var)
     var.registers(["d"])
-    return var.get("JSON").callprop(
-        "parse", ((Js('"') + var.get("d").callprop("join", Js(""))) + Js('"'))
-    )
+    return var.get("JSON").callprop("parse", ((Js('"') + var.get("d").callprop("join", Js(""))) + Js('"')))
 
 
 PyJs_alias_4_8_._set_name("alias_4")
@@ -197,9 +185,7 @@ var.put("alias_5", var.get("id"))
 def PyJs_alias_6_9_(d, this, arguments, var=var):
     var = Scope({"d": d, "this": this, "arguments": arguments, "alias_6": PyJs_alias_6_9_}, var)
     var.registers(["d"])
-    return var.get("JSON").callprop(
-        "parse", ((Js('"') + var.get("d").callprop("join", Js(""))) + Js('"'))
-    )
+    return var.get("JSON").callprop("parse", ((Js('"') + var.get("d").callprop("join", Js(""))) + Js('"')))
 
 
 PyJs_alias_6_9_._set_name("alias_6")
@@ -246,9 +232,7 @@ var.put("alias_12", var.get("id"))
 def PyJs_alias_13_13_(d, this, arguments, var=var):
     var = Scope({"d": d, "this": this, "arguments": arguments, "alias_13": PyJs_alias_13_13_}, var)
     var.registers(["d"])
-    return Js(
-        {"type": Js("function"), "name": var.get("d").get("0"), "args": var.get("d").get("2")}
-    )
+    return Js({"type": Js("function"), "name": var.get("d").get("0"), "args": var.get("d").get("2")})
 
 
 PyJs_alias_13_13_._set_name("alias_13")
@@ -261,9 +245,7 @@ var.put("alias_15", var.get("nonspace"))
 def PyJs_alias_16_14_(d, this, arguments, var=var):
     var = Scope({"d": d, "this": this, "arguments": arguments, "alias_16": PyJs_alias_16_14_}, var)
     var.registers(["d"])
-    return Js(
-        {"type": Js("field"), "table": var.get("d").get("0"), "column": var.get("d").get("2")}
-    )
+    return Js({"type": Js("field"), "table": var.get("d").get("0"), "column": var.get("d").get("2")})
 
 
 PyJs_alias_16_14_._set_name("alias_16")
@@ -274,9 +256,7 @@ var.put("alias_16", PyJs_alias_16_14_)
 def PyJs_alias_17_15_(d, this, arguments, var=var):
     var = Scope({"d": d, "this": this, "arguments": arguments, "alias_17": PyJs_alias_17_15_}, var)
     var.registers(["d"])
-    return Js(
-        {"type": Js("named_arg"), "key": var.get("d").get("0"), "value": var.get("d").get("2")}
-    )
+    return Js({"type": Js("named_arg"), "key": var.get("d").get("0"), "value": var.get("d").get("2")})
 
 
 PyJs_alias_17_15_._set_name("alias_17")
@@ -312,13 +292,7 @@ var.put("alias_22", PyJs_alias_22_17_)
 def PyJs_alias_23_18_(d, this, arguments, var=var):
     var = Scope({"d": d, "this": this, "arguments": arguments, "alias_23": PyJs_alias_23_18_}, var)
     var.registers(["d"])
-    return Js(
-        {
-            "type": Js("regex"),
-            "pattern": var.get("d").get("1").get("0"),
-            "flags": var.get("d").get("3"),
-        }
-    )
+    return Js({"type": Js("regex"), "pattern": var.get("d").get("1").get("0"), "flags": var.get("d").get("3"),})
 
 
 PyJs_alias_23_18_._set_name("alias_23")

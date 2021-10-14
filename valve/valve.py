@@ -86,9 +86,7 @@ def validate(paths, add_functions=None, distinct_messages=None, row_start=2):
         if add_messages and distinct_messages:
             # Update errors to only be distinct messages in a new table
             table_path = table_details[table]["path"]
-            update_errors = collect_distinct_messages(
-                table_details, distinct_messages, table_path, add_messages
-            )
+            update_errors = collect_distinct_messages(table_details, distinct_messages, table_path, add_messages)
             messages.extend(update_errors)
         elif not distinct_messages:
             messages.extend(add_messages)
@@ -145,9 +143,7 @@ def validate_table(config, table):
                     when_condition = rule["when_condition"]
                     # Run meets_condition without logging
                     # as the then-cond check is only run if the value matches the type
-                    messages = validate_condition(
-                        config, when_condition, table_name, field, row_idx, value
-                    )
+                    messages = validate_condition(config, when_condition, table_name, field, row_idx, value)
                     if not messages:
                         # The "when" value meets the condition - validate the "then" value
                         then_column = rule["column"]
@@ -176,11 +172,7 @@ def validate_table(config, table):
                                         + m["message"]
                                     )
                                 m.update(
-                                    {
-                                        "rule ID": "rule:" + str(rule["rule ID"]),
-                                        "level": rule["level"],
-                                        "message": msg,
-                                    }
+                                    {"rule ID": "rule:" + str(rule["rule ID"]), "level": rule["level"], "message": msg,}
                                 )
                                 errors.append(m)
             col_idx += 1
@@ -222,9 +214,7 @@ def check_config_contents(config, table, conditions, rows):
     row_idx = config["row_start"]
     for row in rows:
         for column, condition in parsed_conditions:
-            messages.extend(
-                validate_condition(config, condition, table, column, row_idx, row.get(column, ""))
-            )
+            messages.extend(validate_condition(config, condition, table, column, row_idx, row.get(column, "")))
         row_idx += 1
     return messages
 
@@ -280,32 +270,18 @@ def configure_fields(config):
         field_types = table_fields.get(table, {})
         if table != "*":
             if table not in config["table_details"]:
-                messages.append(
-                    error(config, "field", "table", row_idx, f"unrecognized table '{table}'")
-                )
+                messages.append(error(config, "field", "table", row_idx, f"unrecognized table '{table}'"))
                 continue
             if column not in config["table_details"][table]["fields"]:
                 messages.append(
-                    error(
-                        config,
-                        "field",
-                        "column",
-                        row_idx,
-                        f"unrecognized column '{column}' for table '{table}'",
-                    )
+                    error(config, "field", "column", row_idx, f"unrecognized column '{column}' for table '{table}'",)
                 )
                 continue
 
         # Check that this table.column pair has not already been defined
         if column in field_types:
             messages.append(
-                error(
-                    config,
-                    "field",
-                    "column",
-                    row_idx,
-                    f"Multiple condition defined for {table}.{column}",
-                )
+                error(config, "field", "column", row_idx, f"Multiple condition defined for {table}.{column}",)
             )
             continue
 
@@ -377,9 +353,7 @@ def configure_rules(config):
         row_idx += 1
         table = row["table"]
         if table not in config["table_details"]:
-            messages.append(
-                error(config, "rule", "table", row_idx, f"unrecognized table '{table}'")
-            )
+            messages.append(error(config, "rule", "table", row_idx, f"unrecognized table '{table}'"))
             continue
 
         column_rules = table_rules.get(table, {})
@@ -388,11 +362,7 @@ def configure_rules(config):
         if when_column not in config["table_details"][table]["fields"]:
             messages.append(
                 error(
-                    config,
-                    "rule",
-                    "when column",
-                    row_idx,
-                    f"unrecognized column '{when_column}' for table '{table}'",
+                    config, "rule", "when column", row_idx, f"unrecognized column '{when_column}' for table '{table}'",
                 )
             )
             continue
@@ -403,11 +373,7 @@ def configure_rules(config):
         if then_column not in config["table_details"][table]["fields"]:
             messages.append(
                 error(
-                    config,
-                    "rule",
-                    "then column",
-                    row_idx,
-                    f"unrecognized column '{then_column}' for table '{table}'",
+                    config, "rule", "then column", row_idx, f"unrecognized column '{then_column}' for table '{table}'",
                 )
             )
             continue
@@ -832,9 +798,7 @@ def validate_datatype(config, condition, table, column, row_idx, value):
         if not value:
             value = ""
         if message:
-            message = update_message(
-                table, column, row_idx, parsed_to_str(config, condition), value, message
-            )
+            message = update_message(table, column, row_idx, parsed_to_str(config, condition), value, message)
         else:
             message = f"'{value}' must be of datatype '{name}'"
         level = datatype.get("level", "ERROR")
@@ -842,16 +806,9 @@ def validate_datatype(config, condition, table, column, row_idx, value):
             if not datatype["match"].match(value):
                 suggestion = None
                 if datatype.get("replace"):
-                    m = re.match(
-                        r"s/(.+[^\\]|.*(?<!/)/.*[^\\])/(.+[^\\]|.*(?<!/)/.*[^\\])/(.*)",
-                        datatype["replace"],
-                    )
+                    m = re.match(r"s/(.+[^\\]|.*(?<!/)/.*[^\\])/(.+[^\\]|.*(?<!/)/.*[^\\])/(.*)", datatype["replace"],)
                     suggestion = re.sub(m.group(1), m.group(2), value)
-                return [
-                    error(
-                        config, table, column, row_idx, message, level=level, suggestion=suggestion,
-                    )
-                ]
+                return [error(config, table, column, row_idx, message, level=level, suggestion=suggestion,)]
     return []
 
 
@@ -916,9 +873,7 @@ def validate_concat(config, args, table, column, row_idx, value, message=None):
             except IndexError:
                 # Does not match pattern given in concat
                 if message:
-                    condition = parsed_to_str(
-                        config, {"type": "function", "name": "concat", "args": args}
-                    )
+                    condition = parsed_to_str(config, {"type": "function", "name": "concat", "args": args})
                     message = update_message(table, column, row_idx, condition, value, message)
                 else:
                     message = f"'{value}' must contain substring '{arg_val}'"
@@ -932,9 +887,7 @@ def validate_concat(config, args, table, column, row_idx, value, message=None):
     while idx < len(validate_values):
         v = validate_values[idx]
         condition = validate_conditions[idx]
-        messages.extend(
-            validate_condition(config, condition, table, column, row_idx, v, message=message)
-        )
+        messages.extend(validate_condition(config, condition, table, column, row_idx, v, message=message))
         idx += 1
     return messages
 
@@ -983,9 +936,7 @@ def validate_distinct(config, args, table, column, row_idx, value, message=None)
     # Create the error messages
     if duplicate_locs:
         if message:
-            condition = parsed_to_str(
-                config, {"type": "function", "name": "distinct", "args": args}
-            )
+            condition = parsed_to_str(config, {"type": "function", "name": "distinct", "args": args})
             message = update_message(table, column, row_idx, condition, value, message)
         else:
             message = f"'{value}' must be distinct with value(s) at: " + ", ".join(duplicate_locs)
@@ -1272,10 +1223,7 @@ def build_tree(
         for parent in parents:
             if parent not in allowed_values:
                 # show an error on the parent value, but the parent still appears in the tree
-                msg = (
-                    f"'{parent}' from {table_name}.{parent_column} must exist in {table_name}."
-                    + child_column
-                )
+                msg = f"'{parent}' from {table_name}.{parent_column} must exist in {table_name}." + child_column
                 if add_tree_name:
                     msg += f" or {add_tree_name} tree"
                 errors.append(
@@ -1324,11 +1272,7 @@ def get_tree_options(tree_function):
                 return None, f"`tree` argument {x + 1} must be table.column pair or split=CHAR"
             x += 1
     return (
-        {
-            "child_column": child_column["value"],
-            "add_tree_name": add_tree_name,
-            "split_char": split_char,
-        },
+        {"child_column": child_column["value"], "add_tree_name": add_tree_name, "split_char": split_char,},
         None,
     )
 
@@ -1590,37 +1534,13 @@ default_datatypes = {
 # Builtin functions
 default_functions = {
     "any": {"usage": "any(expression+)", "check": ["expression+"], "validate": validate_any},
-    "concat": {
-        "usage": "concat(value+)",
-        "check": ["(expression or string)+"],
-        "validate": validate_concat,
-    },
-    "distinct": {
-        "usage": "distinct(expression)",
-        "check": ["expression", "field*"],
-        "validate": validate_distinct,
-    },
-    "in": {
-        "usage": "in(value+)",
-        "check": ["(string or field)+", "named:match_case?"],
-        "validate": validate_in,
-    },
-    "list": {
-        "usage": "list(str, expression)",
-        "check": ["string", "expression"],
-        "validate": validate_list,
-    },
-    "lookup": {
-        "usage": "lookup(table, column, column)",
-        "check": check_lookup,
-        "validate": validate_lookup,
-    },
+    "concat": {"usage": "concat(value+)", "check": ["(expression or string)+"], "validate": validate_concat,},
+    "distinct": {"usage": "distinct(expression)", "check": ["expression", "field*"], "validate": validate_distinct,},
+    "in": {"usage": "in(value+)", "check": ["(string or field)+", "named:match_case?"], "validate": validate_in,},
+    "list": {"usage": "list(str, expression)", "check": ["string", "expression"], "validate": validate_list,},
+    "lookup": {"usage": "lookup(table, column, column)", "check": check_lookup, "validate": validate_lookup,},
     "not": {"usage": "not(expression)", "check": ["expression"], "validate": validate_not},
-    "sub": {
-        "usage": "sub(regex, expression)",
-        "check": ["regex_sub", "expression"],
-        "validate": validate_sub,
-    },
+    "sub": {"usage": "sub(regex, expression)", "check": ["regex_sub", "expression"], "validate": validate_sub,},
     "tree": {
         "usage": "tree(column, [treename, named=bool])",
         "check": ["column", "field?", "named:split?"],
@@ -1657,13 +1577,9 @@ def main():
     p = ArgumentParser()
     p.add_argument("paths", help="Paths to input directories and/or files", nargs="+")
     p.add_argument(
-        "-d",
-        "--distinct",
-        help="Collect each distinct error messages and write to a table in provided directory",
+        "-d", "--distinct", help="Collect each distinct error messages and write to a table in provided directory",
     )
-    p.add_argument(
-        "-r", "--row-start", help="Index of first row in tables to validate", type=int, default=2
-    )
+    p.add_argument("-r", "--row-start", help="Index of first row in tables to validate", type=int, default=2)
     p.add_argument("-o", "--output", help="CSV or TSV to write error messages to", required=True)
     args = p.parse_args()
 
