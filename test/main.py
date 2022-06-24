@@ -25,17 +25,17 @@ if __name__ == "__main__":
         "table",
         help="A TSV file containing high-level information about the data in the database",
     )
-    parser.add_argument("db_dir", help="The directory in which to save the database file")
+    parser.add_argument("db_path", help="The directory in which to save the database file")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--load", action="store_true")
     group.add_argument("--insert_update", action="store_true")
     args = parser.parse_args()
 
     if args.load:
-        config = valve.py_configure_and_or_load(args.table, args.db_dir, True)
+        config = valve.py_configure_and_or_load(args.table, args.db_path, True)
     elif args.insert_update:
-        config = valve.py_configure_and_or_load(args.table, args.db_dir, False)
-        matching_values = valve.py_get_matching_values(config, args.db_dir, "foobar", "child")
+        config = valve.py_configure_and_or_load(args.table, args.db_path, False)
+        matching_values = valve.py_get_matching_values(config, args.db_path, "foobar", "child")
         matching_values = json.loads(matching_values)
         assert matching_values == [
             {"id": "a", "label": "a", "order": 1},
@@ -66,8 +66,8 @@ if __name__ == "__main__":
             },
         }
 
-        result_row = valve.py_validate_row(config, args.db_dir, "foobar", json.dumps(row), True, 1)
-        valve.py_update_row(args.db_dir, "foobar", result_row, 1)
+        result_row = valve.py_validate_row(config, args.db_path, "foobar", json.dumps(row), True, 1)
+        valve.py_update_row(args.db_path, "foobar", result_row, 1)
 
         row = {
             "id": {"messages": [], "valid": True, "value": "BFO:0000027"},
@@ -83,5 +83,5 @@ if __name__ == "__main__":
             "type": {"messages": [], "valid": True, "value": "owl:Class"},
         }
 
-        result_row = valve.py_validate_row(config, args.db_dir, "import", json.dumps(row), False)
-        new_row_num = valve.py_insert_new_row(args.db_dir, "import", result_row)
+        result_row = valve.py_validate_row(config, args.db_path, "import", json.dumps(row), False)
+        new_row_num = valve.py_insert_new_row(args.db_path, "import", result_row)

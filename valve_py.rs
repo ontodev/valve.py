@@ -16,8 +16,8 @@ use std::str::FromStr;
 /// configure the database using the configuration which can be looked up using the table table,
 /// and optionally load it if the `load` flag is set to true.
 #[pyfunction]
-fn py_configure_and_or_load(table_table: &str, db_dir: &str, load: bool) -> PyResult<String> {
-    let config = block_on(configure_and_or_load(table_table, db_dir, load)).unwrap();
+fn py_configure_and_or_load(table_table: &str, db_path: &str, load: bool) -> PyResult<String> {
+    let config = block_on(configure_and_or_load(table_table, db_path, load)).unwrap();
     Ok(config)
 }
 
@@ -29,7 +29,7 @@ fn py_configure_and_or_load(table_table: &str, db_dir: &str, load: bool) -> PyRe
 #[pyfunction]
 fn py_get_matching_values(
     config: &str,
-    db_dir: &str,
+    db_path: &str,
     table_name: &str,
     column_name: &str,
     matching_string: Option<&str>,
@@ -39,7 +39,7 @@ fn py_get_matching_values(
 
     // Note that we use mode=ro here instead of mode=rwc
     let connection_options =
-        AnyConnectOptions::from_str(format!("sqlite://{}/valve.db?mode=ro", db_dir).as_str())
+        AnyConnectOptions::from_str(format!("sqlite://{}?mode=ro", db_path).as_str())
             .unwrap();
     let pool = AnyPoolOptions::new().max_connections(5).connect_with(connection_options);
     let pool = block_on(pool).unwrap();
@@ -68,7 +68,7 @@ fn py_get_matching_values(
 #[pyfunction]
 fn py_validate_row(
     config: &str,
-    db_dir: &str,
+    db_path: &str,
     table_name: &str,
     row: &str,
     existing_row: bool,
@@ -81,7 +81,7 @@ fn py_validate_row(
 
     // Note that we use mode=ro here instead of mode=rwc
     let connection_options =
-        AnyConnectOptions::from_str(format!("sqlite://{}/valve.db?mode=ro", db_dir).as_str())
+        AnyConnectOptions::from_str(format!("sqlite://{}?mode=ro", db_path).as_str())
             .unwrap();
     let pool = AnyPoolOptions::new().max_connections(5).connect_with(connection_options);
     let pool = block_on(pool).unwrap();
@@ -109,13 +109,13 @@ fn py_validate_row(
 /// Given a directory in which the database is located, a table name, a row represented as a
 /// JSON string, and its associated row number, update the row in the database.
 #[pyfunction]
-fn py_update_row(db_dir: &str, table_name: &str, row: &str, row_number: u32) -> PyResult<()> {
+fn py_update_row(db_path: &str, table_name: &str, row: &str, row_number: u32) -> PyResult<()> {
     let row: SerdeValue = serde_json::from_str(row).unwrap();
     let row = row.as_object().unwrap();
 
     // Note that we use mode=rw here instead of mode=rwc
     let connection_options =
-        AnyConnectOptions::from_str(format!("sqlite://{}/valve.db?mode=rw", db_dir).as_str())
+        AnyConnectOptions::from_str(format!("sqlite://{}?mode=rw", db_path).as_str())
             .unwrap();
     let pool = AnyPoolOptions::new().max_connections(5).connect_with(connection_options);
     let pool = block_on(pool).unwrap();
@@ -129,13 +129,13 @@ fn py_update_row(db_dir: &str, table_name: &str, row: &str, row_number: u32) -> 
 /// Given a directory in which the database is located, a table name, and a row represented as a
 /// JSON string, insert the new row to the database.
 #[pyfunction]
-fn py_insert_new_row(db_dir: &str, table_name: &str, row: &str) -> PyResult<u32> {
+fn py_insert_new_row(db_path: &str, table_name: &str, row: &str) -> PyResult<u32> {
     let row: SerdeValue = serde_json::from_str(row).unwrap();
     let row = row.as_object().unwrap();
 
     // Note that we use mode=rw here instead of mode=rwc
     let connection_options =
-        AnyConnectOptions::from_str(format!("sqlite://{}/valve.db?mode=rw", db_dir).as_str())
+        AnyConnectOptions::from_str(format!("sqlite://{}?mode=rw", db_path).as_str())
             .unwrap();
     let pool = AnyPoolOptions::new().max_connections(5).connect_with(connection_options);
     let pool = block_on(pool).unwrap();

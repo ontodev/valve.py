@@ -41,12 +41,12 @@ VALVE bindings for Python
 
 11. Replace the recipe for the `test` target in the `Makefile` with the following:
     ```
-    test: clean target/debug/valve | build test/output
-    	test/main.py --load test/src/table.tsv build > /dev/null
+    test: clean | build test/output
+    	test/main.py --load test/src/table.tsv build/valve.db > /dev/null
     	test/round_trip.sh
     	scripts/export.py messages build/valve.db test/output/ column datatype prefix rule table foobar foreign_table import
     	diff -q test/expected/messages.tsv test/output/messages.tsv
-    	test/main.py --insert_update test/src/table.tsv build > /dev/null
+    	test/main.py --insert_update test/src/table.tsv build/valve.db > /dev/null
     	test/insert_update.sh
     ```
     **Note that the indented lines should be indended using TABS, not spaces.**
