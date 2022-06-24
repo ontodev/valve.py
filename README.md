@@ -22,11 +22,12 @@ VALVE bindings for Python
        # "extension-module" tells pyo3 we want to build an extension module (skips linking against libpython.so)
        features = ["extension-module"]
        ```
-8. Install maturin
+8. Install needed python modules
 
         python3 -m venv .venv
         source .venv/bin/activate
-        pip install -U pip maturin
+        ln -s ../requirements.txt
+        pip install -U -r requirements.txt
 
 9. Build
 
