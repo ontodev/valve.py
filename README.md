@@ -5,7 +5,7 @@ VALVE bindings for Python
 
 1. `git clone git@github.com:ontodev/valve.py.git -b valve_rs_python_bindings`
 2. `cd valve.py`
-3. `git clone git@github.com:ontodev/valve.rs.git
+3. `git clone git@github.com:ontodev/valve.rs.git`
 4. `cd valve.rs/`
 5. `ln -s ../../valve_py.rs src/`
 6. Edit `src/lib.rs` and add the line `mod valve_py;` at the end of the file.
