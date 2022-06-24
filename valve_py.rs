@@ -1,7 +1,7 @@
 use crate::{
     configure_and_or_load, get_compiled_datatype_conditions, get_compiled_rule_conditions,
-    get_matching_values, get_parsed_structure_conditions, insert_new_row, update_row, validate_row,
-    valve_grammar::StartParser,
+    get_parsed_structure_conditions, insert_new_row, update_row, validate::get_matching_values,
+    validate::validate_row, valve_grammar::StartParser,
 };
 use futures::executor::block_on;
 use pyo3::prelude::{pyfunction, pymodule, wrap_pyfunction, PyModule, PyResult, Python};
