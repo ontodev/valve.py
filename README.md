@@ -30,8 +30,8 @@ VALVE bindings for Python
 
 9. Build
 
-       `maturin develop` for local installation
-       `maturin build` for creating a wheel
+    - Run `maturin develop` for local installation
+    - Run `maturin build` for creating a wheel
 
 10. Copy the test files over
 
