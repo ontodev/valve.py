@@ -146,7 +146,7 @@ fn py_insert_new_row(db_path: &str, table_name: &str, row: &str) -> PyResult<u32
 }
 
 #[pymodule]
-fn valve(_py: Python, m: &PyModule) -> PyResult<()> {
+fn ontodev_valve(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_configure_and_or_load, m)?)?;
     m.add_function(wrap_pyfunction!(py_get_matching_values, m)?)?;
     m.add_function(wrap_pyfunction!(py_validate_row, m)?)?;

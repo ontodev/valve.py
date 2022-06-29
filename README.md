@@ -9,12 +9,10 @@ VALVE bindings for Python
 4. `cd valve.rs/`
 5. `ln -s ../../valve_py.rs src/`
 6. Edit `src/lib.rs` and add the line `mod valve_py;` at the end of the file.
-7. Edit `Cargo.toml` and make the following changes:
-   - Add the line `futures = "0.3"` to the the `[dependencies]` block.
-   - Add the following lines:
+7. Edit `Cargo.toml` and add the following lines:
        ```
        [lib]
-       name = "valve"
+       name = "ontodev_valve"
        crate-type = ["cdylib", "lib"]
 
        [dependencies.pyo3]
