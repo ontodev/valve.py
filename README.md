@@ -11,7 +11,6 @@ VALVE bindings for Python
 6. Edit `src/lib.rs` and add the line `mod valve_py;` at the end of the file.
 7. Edit `Cargo.toml` and add the following lines:
 
-       ```
        [lib]
        name = "ontodev_valve"
        crate-type = ["cdylib", "lib"]
@@ -20,7 +19,6 @@ VALVE bindings for Python
        version = "0.16.5"
        # "extension-module" tells pyo3 we want to build an extension module (skips linking against libpython.so)
        features = ["extension-module"]
-       ```
 
 8. Install needed python modules
 
