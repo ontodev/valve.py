@@ -5,7 +5,8 @@ SHELL := bash
 .SUFFIXES:
 
 .installed:
-	git clone https://github.com/ontodev/valve.rs.git
+	cargo install cargo-download
+	cargo download ontodev_valve=0.1.0 -x -o valve.rs
 	cd valve.rs && ln -s ../../valve_py.rs src/
 	echo -e "\nmod valve_py;" >> valve.rs/src/lib.rs
 	echo -e "\n\
@@ -21,7 +22,7 @@ SHELL := bash
 	cd valve.rs && python3 -m venv .venv
 	cd valve.rs && ln -s ../requirements.txt
 	cd valve.rs && source .venv/bin/activate && pip install -U -r requirements.txt
-	cd valve.rs && source .venv/bin/activate && maturin develop
+	cd valve.rs && source .venv/bin/activate && maturin develop --release
 	cp test/expected/* valve.rs/test/expected/
 	cp test/main.py test/insert_update.sh valve.rs/test
 	touch $@
