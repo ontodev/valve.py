@@ -11,5 +11,4 @@ VALVE bindings for Python
 
 ## Testing
 
-	cd valve.rs
-	make testpy
+	make test
