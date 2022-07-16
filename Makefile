@@ -1,6 +1,4 @@
 MAKEFLAGS += --warn-undefined-variables
-SHELL := bash
-.SHELLFLAGS := -eu -o pipefail -c
 .DELETE_ON_ERROR:
 .SUFFIXES:
 

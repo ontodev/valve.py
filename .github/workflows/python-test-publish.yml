@@ -18,18 +18,62 @@ jobs:
       - name: Check out repository code
         uses: actions/checkout@v3
 
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-gnu
+          default: true
+          override: true
+
+      - name: Install cargo-download
+        run: |
+          cargo install cargo-download
+
+      - name: Download rust library version 0.1.0
+        run: |
+          cargo download ontodev_valve=0.1.0 -x -o valve.rs
+
+      - name: Create a soft-link to the rust library
+        working-directory: ./valve.rs
+        run: |
+          ln -s ../../valve_py.rs src/
+
+      - name: Edit lib.rs
+        working-directory: ./valve.rs
+        run: |
+          echo -e "\nmod valve_py;" >> src/lib.rs
+
+      - name: Add dependencies to Cargo.toml
+        working-directory: ./valve.rs
+        run: |
+          echo -e "\n\
+          # [lib] and [dependencies.pyo3] are needed for valve.py bindings:\n\
+          [lib]\n\
+          name = \"ontodev_valve\"\n\
+          crate-type = [\"cdylib\", \"lib\"]\n\
+          \n\
+          [dependencies.pyo3]\n\
+          version = \"0.16.5\"\n\
+          # \"extension-module\" tells pyo3 we want to build an extension module (skips linking against ibpython.so)\n\
+          features = [\"extension-module\"]" >> Cargo.toml
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Make install
-        run: |
-          make install
+      - name: Build wheels - x86_64
+        uses: messense/maturin-action@v1
+        with:
+          target: x86_64
+          args: --release --out dist -m valve.rs/Cargo.toml
 
-      - name: Make test
-        run: |
-          make test
+      - name: Upload wheels
+        uses: actions/upload-artifact@v3
+        with:
+          name: wheels
+          path: dist
 
       #- name: Install dependencies
       #  run: |
