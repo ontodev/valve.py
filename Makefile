@@ -1,8 +1,10 @@
 MAKEFLAGS += --warn-undefined-variables
+SHELL := bash
+.SHELLFLAGS := -eu -o pipefail -c
 .DELETE_ON_ERROR:
 .SUFFIXES:
 
-.installed:
+valve.rs/Cargo.toml:
 	cargo install cargo-download
 	cargo download ontodev_valve=0.1.0 -x -o valve.rs
 	cd valve.rs && ln -s ../../valve_py.rs src/
@@ -17,13 +19,25 @@ MAKEFLAGS += --warn-undefined-variables
 	version = \"0.16.5\"\n\
 	# \"extension-module\" tells pyo3 we want to build an extension module (skips linking against libpython.so)\n\
 	features = [\"extension-module\"]" >> valve.rs/Cargo.toml
+	cd valve.rs && sed 's/ontodev_valve/m_cuffa_ontodev_valve/g' Cargo.toml > Cargo.toml.tmp
+	cd valve.rs && mv -f Cargo.toml.tmp Cargo.toml
+
+.installed: valve.rs/Cargo.toml
 	cd valve.rs && python3 -m venv .venv
 	cd valve.rs && ln -s ../requirements.txt
 	cd valve.rs && source .venv/bin/activate && pip install -U -r requirements.txt
-	cd valve.rs && source .venv/bin/activate && maturin develop --release
+	source valve.rs/.venv/bin/activate && maturin develop --release -m valve.rs/Cargo.toml
 	cp test/expected/* valve.rs/test/expected/
 	cp test/main.py test/insert_update.sh valve.rs/test
 	touch $@
+
+.PHONY: twine
+
+twine:
+	source valve.rs/.venv/bin/activate && python -m pip install build
+	source valve.rs/.venv/bin/activate && python -m build --sdist
+	source valve.rs/.venv/bin/activate && python -m build --wheel
+	twine check dist/*
 
 valve.rs/build/:
 	mkdir -p $@
@@ -34,7 +48,7 @@ valve.rs/test/output:
 .PHONY: clean cleanrs install test
 
 clean:
-	rm -Rf .installed valve.rs
+	rm -Rf .installed valve.rs dist
 	git checkout valve_py.rs
 
 cleanrs:
