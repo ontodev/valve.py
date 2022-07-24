@@ -1,0 +1,100 @@
+name: Set up valve rust bindings
+
+on:
+  release:
+    types: [released]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish-wheels:
+    strategy:
+      matrix:
+        target: [
+          { runner: "macos-latest", arch: "x86_64-apple-darwin" },
+          { runner: "macos-latest", arch: "aarch64-apple-darwin" },
+          { runner: "windows-latest", arch: "x86_64-pc-windows-msvc" },
+          { runner: "ubuntu-latest", arch: "x86_64-unknown-linux-gnu" },
+          { runner: "ubuntu-latest", arch: "x86_64-unknown-linux-musl" },
+        ]
+    runs-on: ${{ matrix.target.runner }}
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Install musl-tools (MUSL)
+        if: ${{ matrix.target.runner == 'ubuntu-latest' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install musl-tools gcc-multilib
+
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target.arch }}
+          default: true
+          override: true
+
+      - name: Install cargo-quickinstall and cargo-download
+        run: |
+          cargo install cargo-quickinstall
+          cargo quickinstall cargo-download
+
+      - name: Download valve rust library version 0.1.4
+        run: |
+          cargo download ontodev_valve=0.1.4 -x -o valve.rs
+
+      - name: Create a soft-link to the valve rust library
+        working-directory: ./valve.rs
+        run: |
+          ln -s ../../valve_py.rs src/
+
+      - name: Edit lib.rs and add dependencies to Cargo.toml
+        working-directory: ./valve.rs
+        run: |
+          echo "mod valve_py;" >> src/lib.rs
+          cat ../extra_cargo_entries.toml >> Cargo.toml
+
+      ## TODO: Remove this hack later.
+      - name: Change project name in Cargo.toml (dev only - remove later)
+        working-directory: ./valve.rs
+        run: |
+          sed 's/ontodev_valve/m_cuffa_ontodev_valve/g' Cargo.toml > Cargo.toml.tmp
+          rm Cargo.toml
+          mv Cargo.toml.tmp Cargo.toml
+          sed 's/0.1.4/0.1.8/g' Cargo.toml > Cargo.toml.tmp
+          rm Cargo.toml
+          mv Cargo.toml.tmp Cargo.toml
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Build wheels (MUSL)
+        if: ${{ matrix.target.runner == 'ubuntu-latest' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          manylinux: musllinux_1_2
+          args: --release --interpreter python3.9 --out dist -m valve.rs/Cargo.toml
+
+      - name: Build wheels (non-MUSL)
+        if: ${{ matrix.target.runner != 'ubuntu-latest' || matrix.target.arch != 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          args: --release --out dist -m valve.rs/Cargo.toml
+
+      - name: Install twine
+        run: |
+          pip install twine
+
+      - name: Build and publish
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          twine upload --repository testpypi dist/*

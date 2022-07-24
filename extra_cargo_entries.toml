@@ -1,0 +1,10 @@
+
+# [lib] and [dependencies.pyo3] are needed for valve.py bindings:
+[lib]
+name = "ontodev_valve"
+crate-type = ["cdylib", "lib"]
+
+[dependencies.pyo3]
+version = "0.16.5"
+# "extension-module" tells pyo3 we want to build an extension module (skips linking against libpython.so)
+features = ["extension-module"]
