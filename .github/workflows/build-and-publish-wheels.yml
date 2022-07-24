@@ -64,7 +64,7 @@ jobs:
           sed 's/ontodev_valve/m_cuffa_ontodev_valve/g' Cargo.toml > Cargo.toml.tmp
           rm Cargo.toml
           mv Cargo.toml.tmp Cargo.toml
-          sed 's/0.1.4/0.1.9/g' Cargo.toml > Cargo.toml.tmp
+          sed 's/0.1.4/0.1.9-alpha/g' Cargo.toml > Cargo.toml.tmp
           rm Cargo.toml
           mv Cargo.toml.tmp Cargo.toml
 
