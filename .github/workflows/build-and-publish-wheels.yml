@@ -84,9 +84,9 @@ jobs:
         run: |
           pip install twine
 
-      #- name: Build and publish
-      #  env:
-      #    TWINE_USERNAME: __token__
-      #    TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
-      #  run: |
-      #    twine upload --repository testpypi dist/*
+      - name: Build and publish
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          twine upload --repository testpypi dist/*
