@@ -12,7 +12,7 @@ test: cleanrs install | valve.rs/build/ valve.rs/test/output
 	cd valve.rs && source .venv/bin/activate && test/main.py --load test/src/table.tsv build/valve.db > /dev/null
 	cd valve.rs && test/round_trip.sh
 	cd valve.rs && scripts/export.py messages build/valve.db test/output/ column datatype prefix rule table foobar foreign_table import
-	diff -q valve.rs/test/expected/messages.tsv valve.rs/test/output/messages.tsv
+	cd valve.rs && diff -q test/expected/messages.tsv test/output/messages.tsv
 	cd valve.rs && source .venv/bin/activate && test/main.py --insert_update test/src/table.tsv build/valve.db > /dev/null
 	cd valve.rs && test/insert_update.sh
 
@@ -26,10 +26,10 @@ cleanrs:
 valve.rs/Cargo.toml:
 	cargo install cargo-quickinstall
 	cargo quickinstall cargo-download
-	cargo download ontodev_valve=0.1.2 -x -o valve.rs
+	cargo download ontodev_valve==`cat ontodev_valve_version` -x -o valve.rs
 	cd valve.rs && ln -s ../../valve_py.rs src/
-	echo -e "\nmod valve_py;" >> valve.rs/src/lib.rs
-	cat extra_cargo_entries.toml >> valve.rs/Cargo.toml
+	cd valve.rs && echo -e "\nmod valve_py;" >> src/lib.rs
+	cd valve.rs && cat ../extra_cargo_entries.toml >> Cargo.toml
 
 .installed: valve.rs/Cargo.toml
 	cd valve.rs && python3 -m venv .venv

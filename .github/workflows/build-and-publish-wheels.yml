@@ -27,7 +27,7 @@ jobs:
         if: ${{ matrix.target.runner == 'ubuntu-latest' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
         run: |
           sudo apt-get update
-          sudo apt-get install musl-tools gcc-multilib
+          sudo apt-get install musl-tools
 
       - name: Install latest rust toolchain
         uses: actions-rs/toolchain@v1
@@ -42,11 +42,14 @@ jobs:
           cargo install cargo-quickinstall
           cargo quickinstall cargo-download
 
-      - name: Download valve rust library version 0.1.4
+      # Note that we need to specify the bash shell here in order for the string interpolation to
+      # work on the Windows runner.
+      - name: Download the version, specified in ontodev_valve_version, of valve's rust library.
+        shell: bash
         run: |
-          cargo download ontodev_valve=0.1.4 -x -o valve.rs
+          cargo download ontodev_valve==`cat ontodev_valve_version` -x -o valve.rs
 
-      - name: Create a soft-link to the valve rust library
+      - name: Create a soft-link to the valve rust library source code file.
         working-directory: ./valve.rs
         run: |
           ln -s ../../valve_py.rs src/
@@ -56,17 +59,6 @@ jobs:
         run: |
           echo "mod valve_py;" >> src/lib.rs
           cat ../extra_cargo_entries.toml >> Cargo.toml
-
-      ## TODO: Remove this hack later.
-      - name: Change project name in Cargo.toml (dev only - remove later)
-        working-directory: ./valve.rs
-        run: |
-          sed 's/ontodev_valve/m_cuffa_ontodev_valve/g' Cargo.toml > Cargo.toml.tmp
-          rm Cargo.toml
-          mv Cargo.toml.tmp Cargo.toml
-          sed 's/0.1.4/0.1.9-alpha/g' Cargo.toml > Cargo.toml.tmp
-          rm Cargo.toml
-          mv Cargo.toml.tmp Cargo.toml
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -92,9 +84,9 @@ jobs:
         run: |
           pip install twine
 
-      - name: Build and publish
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
-        run: |
-          twine upload --repository testpypi dist/*
+      #- name: Build and publish
+      #  env:
+      #    TWINE_USERNAME: __token__
+      #    TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+      #  run: |
+      #    twine upload --repository testpypi dist/*
