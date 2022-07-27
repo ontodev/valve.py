@@ -13,7 +13,10 @@ env:
 
 jobs:
   run-tests:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10"]
+    runs-on: ubuntu-20.04
     steps:
       - name: Check out repository code
         uses: actions/checkout@v3
@@ -26,10 +29,10 @@ jobs:
           default: true
           override: true
 
-      - name: Set up Python
+      - name: Set up Python version ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: ${{ matrix.python-version }}
 
       - name: Run tests via Makefile
         run: |
