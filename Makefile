@@ -32,7 +32,7 @@ valve.rs/Cargo.toml:
 	cd valve.rs && cat ../extra_cargo_entries.toml >> Cargo.toml
 
 .installed: valve.rs/Cargo.toml
-	cd valve.rs && python3 -m venv .venv
+	cd valve.rs && python3.8 -m venv .venv
 	cd valve.rs && ln -s ../requirements.txt
 	cd valve.rs && source .venv/bin/activate && pip install -U -r requirements.txt
 	source valve.rs/.venv/bin/activate && maturin develop --release -m valve.rs/Cargo.toml
