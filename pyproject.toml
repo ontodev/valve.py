@@ -3,13 +3,12 @@ requires      = ["setuptools>=63.2.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "m_cuffa_ontodev_valve"
-version = "0.1.2"
+name = "ontodev_valve"
 description = "VALVE bindings for Python"
 readme = "README.md"
 authors = [{ name = "Knocean Inc." }]
 license = { file = "LICENSE" }
-requires-python = ">=3.9"
+requires-python = ">=3.8"
 
 [project.urls]
-Homepage = "https://github.com/lmcmicu/valve.py_temporary_delete_me"
+Homepage = "https://github.com/ontodev/valve.py"

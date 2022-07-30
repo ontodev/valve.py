@@ -26,7 +26,7 @@ cleanrs:
 valve.rs/Cargo.toml:
 	cargo install cargo-quickinstall
 	cargo quickinstall cargo-download
-	cargo download ontodev_valve==`cat ontodev_valve_version` -x -o valve.rs
+	cargo download ontodev_valve==`cat ontodev_valve.rs_version` -x -o valve.rs
 	cd valve.rs && ln -s ../../valve_py.rs src/
 	cd valve.rs && echo -e "\nmod valve_py;" >> src/lib.rs
 	cd valve.rs && cat ../extra_cargo_entries.toml >> Cargo.toml
