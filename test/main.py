@@ -4,11 +4,11 @@ import json
 import sys
 import time
 from ontodev_valve import (
-    py_configure_and_or_load,
-    py_get_matching_values,
-    py_validate_row,
-    py_update_row,
-    py_insert_new_row,
+    configure_and_or_load,
+    get_matching_values,
+    validate_row,
+    update_row,
+    insert_new_row,
 )
 
 from argparse import ArgumentParser
@@ -38,10 +38,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.load:
-        config = py_configure_and_or_load(args.table, args.db_path, True)
+        config = configure_and_or_load(args.table, args.db_path, True)
     elif args.insert_update:
-        config = py_configure_and_or_load(args.table, args.db_path, False)
-        matching_values = py_get_matching_values(config, args.db_path, "foobar", "child")
+        config = configure_and_or_load(args.table, args.db_path, False)
+        matching_values = get_matching_values(config, args.db_path, "foobar", "child")
         matching_values = json.loads(matching_values)
         assert matching_values == [
             {"id": "a", "label": "a", "order": 1},
@@ -72,8 +72,8 @@ if __name__ == "__main__":
             },
         }
 
-        result_row = py_validate_row(config, args.db_path, "foobar", json.dumps(row), True, 1)
-        py_update_row(args.db_path, "foobar", result_row, 1)
+        result_row = validate_row(config, args.db_path, "foobar", json.dumps(row), True, 1)
+        update_row(args.db_path, "foobar", result_row, 1)
 
         row = {
             "id": {"messages": [], "valid": True, "value": "BFO:0000027"},
@@ -89,5 +89,5 @@ if __name__ == "__main__":
             "type": {"messages": [], "valid": True, "value": "owl:Class"},
         }
 
-        result_row = py_validate_row(config, args.db_path, "import", json.dumps(row), False)
-        new_row_num = py_insert_new_row(args.db_path, "import", result_row)
+        result_row = validate_row(config, args.db_path, "import", json.dumps(row), False)
+        new_row_num = insert_new_row(args.db_path, "import", result_row)
