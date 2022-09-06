@@ -27,6 +27,8 @@ valve.rs/Cargo.toml:
 	cargo install cargo-quickinstall
 	cargo quickinstall cargo-download
 	cargo download ontodev_valve==`cat ontodev_valve.rs_version` -x -o valve.rs
+	cd valve.rs && sed "s/version = \"`cat ../ontodev_valve.rs_version`\"/version = \"`cat ../ontodev_valve.py_version`\"/" Cargo.toml > Cargo.toml.new
+	cd valve.rs && /bin/mv -f Cargo.toml.new Cargo.toml
 	cd valve.rs && ln -s ../../valve_py.rs src/
 	cd valve.rs && echo -e "\nmod valve_py;" >> src/lib.rs
 	cd valve.rs && cat ../extra_cargo_entries.toml >> Cargo.toml
