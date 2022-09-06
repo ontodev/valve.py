@@ -49,6 +49,12 @@ jobs:
         run: |
           cargo download ontodev_valve==`cat ontodev_valve.rs_version` -x -o valve.rs
 
+      - name: Use the valve.py version instead of the valve.rs version when compiling
+        shell: bash
+        run: |
+          sed "s/version = \"`cat ontodev_valve.rs_version`\"/version = \"`cat ontodev_valve.py_version`\"/" valve.rs/Cargo.toml > valve.rs/Cargo.toml.new
+          mv -f valve.rs/Cargo.toml.new valve.rs/Cargo.toml
+
       - name: Create a soft-link to the valve rust library source code file.
         working-directory: ./valve.rs
         run: |
