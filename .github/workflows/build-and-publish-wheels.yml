@@ -45,8 +45,8 @@ jobs:
       - name: Set environment variables corresponding to the valve.rs and valve.py versions.
         shell: bash
         run: |
-          VALVE_PY_VERSION=$(grep valve\.py VALVE.VERSION |awk '{print $2}')" >> $GITHUB_ENV
-          VALVE_RS_VERSION=$(grep valve\.rs VALVE.VERSION |awk '{print $2}')" >> $GITHUB_ENV
+          echo "VALVE_PY_VERSION=$(grep valve\.py VALVE.VERSION |awk '{print $2}')" >> $GITHUB_ENV
+          echo "VALVE_RS_VERSION=$(grep valve\.rs VALVE.VERSION |awk '{print $2}')" >> $GITHUB_ENV
 
       # Note that we need to specify the bash shell here in order for the string interpolation to
       # work on the Windows runner.
