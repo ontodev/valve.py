@@ -50,6 +50,3 @@ valve.rs/build/:
 
 valve.rs/test/output:
 	mkdir -p $@
-
-blook:
-	echo ${bloob}
