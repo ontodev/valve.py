@@ -50,7 +50,7 @@ jobs:
 
       # Note that we need to specify the bash shell here in order for the string interpolation to
       # work on the Windows runner.
-      - name: Download the version, specified in ontodev_valve.rs_version, of valve's rust library.
+      - name: Download the version, specified in the file VALVE.VERSION, of valve's rust library.
         shell: bash
         run: |
           cargo download ontodev_valve==$VALVE_RS_VERSION -x -o valve.rs
