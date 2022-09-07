@@ -61,73 +61,69 @@ jobs:
           python3 override_valve_version.py $VALVE_PY_VERSION valve.rs/Cargo.toml > valve.rs/Cargo.toml.new
           mv -f valve.rs/Cargo.toml.new valve.rs/Cargo.toml
 
-      - name: Test
+      - name: Create a soft-link to the valve rust library source code file.
+        working-directory: ./valve.rs
         run: |
-          cat valve.rs/Cargo.toml
+          ln -s ../../valve_py.rs src/
 
-#      - name: Create a soft-link to the valve rust library source code file.
-#        working-directory: ./valve.rs
-#        run: |
-#          ln -s ../../valve_py.rs src/
-#
-#      - name: Edit lib.rs and add dependencies to Cargo.toml
-#        working-directory: ./valve.rs
-#        run: |
-#          echo "mod valve_py;" >> src/lib.rs
-#          cat ../extra_cargo_entries.toml >> Cargo.toml
-#
-#      - name: Build wheels for Python 3.8 (MUSL)
-#        if: ${{ matrix.target.runner == 'ubuntu-20.04' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
-#        uses: messense/maturin-action@v1
-#        with:
-#          target: ${{ matrix.target.arch }}
-#          manylinux: musllinux_1_2
-#          args: --release --interpreter python3.8 --out dist -m valve.rs/Cargo.toml
-#
-#      - name: Build wheels for Python 3.8 (non-MUSL)
-#        if: ${{ matrix.target.runner != 'ubuntu-20.04' || matrix.target.arch != 'x86_64-unknown-linux-musl' }}
-#        uses: messense/maturin-action@v1
-#        with:
-#          target: ${{ matrix.target.arch }}
-#          args: --release --interpreter python3.8 --out dist -m valve.rs/Cargo.toml
-#
-#      - name: Build wheels for Python 3.9 (MUSL)
-#        if: ${{ matrix.target.runner == 'ubuntu-20.04' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
-#        uses: messense/maturin-action@v1
-#        with:
-#          target: ${{ matrix.target.arch }}
-#          manylinux: musllinux_1_2
-#          args: --release --interpreter python3.9 --out dist -m valve.rs/Cargo.toml
-#
-#      - name: Build wheels for Python 3.9 (non-MUSL)
-#        if: ${{ matrix.target.runner != 'ubuntu-20.04' || matrix.target.arch != 'x86_64-unknown-linux-musl' }}
-#        uses: messense/maturin-action@v1
-#        with:
-#          target: ${{ matrix.target.arch }}
-#          args: --release --interpreter python3.9 --out dist -m valve.rs/Cargo.toml
-#
-#      - name: Build wheels for Python 3.10 (MUSL)
-#        if: ${{ matrix.target.runner == 'ubuntu-20.04' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
-#        uses: messense/maturin-action@v1
-#        with:
-#          target: ${{ matrix.target.arch }}
-#          manylinux: musllinux_1_2
-#          args: --release --interpreter python3.10 --out dist -m valve.rs/Cargo.toml
-#
-#      - name: Build wheels for Python 3.10 (non-MUSL)
-#        if: ${{ matrix.target.runner != 'ubuntu-20.04' || matrix.target.arch != 'x86_64-unknown-linux-musl' }}
-#        uses: messense/maturin-action@v1
-#        with:
-#          target: ${{ matrix.target.arch }}
-#          args: --release --interpreter python3.10 --out dist -m valve.rs/Cargo.toml
-#
-#      - name: Install twine
-#        run: |
-#          pip install twine
-#
-#      - name: Publish to TestPyPI
-#        env:
-#          TWINE_USERNAME: __token__
-#          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
-#        run: |
-#          twine upload --repository testpypi dist/*
+      - name: Edit lib.rs and add dependencies to Cargo.toml
+        working-directory: ./valve.rs
+        run: |
+          echo "mod valve_py;" >> src/lib.rs
+          cat ../extra_cargo_entries.toml >> Cargo.toml
+
+      - name: Build wheels for Python 3.8 (MUSL)
+        if: ${{ matrix.target.runner == 'ubuntu-20.04' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          manylinux: musllinux_1_2
+          args: --release --interpreter python3.8 --out dist -m valve.rs/Cargo.toml
+
+      - name: Build wheels for Python 3.8 (non-MUSL)
+        if: ${{ matrix.target.runner != 'ubuntu-20.04' || matrix.target.arch != 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          args: --release --interpreter python3.8 --out dist -m valve.rs/Cargo.toml
+
+      - name: Build wheels for Python 3.9 (MUSL)
+        if: ${{ matrix.target.runner == 'ubuntu-20.04' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          manylinux: musllinux_1_2
+          args: --release --interpreter python3.9 --out dist -m valve.rs/Cargo.toml
+
+      - name: Build wheels for Python 3.9 (non-MUSL)
+        if: ${{ matrix.target.runner != 'ubuntu-20.04' || matrix.target.arch != 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          args: --release --interpreter python3.9 --out dist -m valve.rs/Cargo.toml
+
+      - name: Build wheels for Python 3.10 (MUSL)
+        if: ${{ matrix.target.runner == 'ubuntu-20.04' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          manylinux: musllinux_1_2
+          args: --release --interpreter python3.10 --out dist -m valve.rs/Cargo.toml
+
+      - name: Build wheels for Python 3.10 (non-MUSL)
+        if: ${{ matrix.target.runner != 'ubuntu-20.04' || matrix.target.arch != 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          args: --release --interpreter python3.10 --out dist -m valve.rs/Cargo.toml
+
+      - name: Install twine
+        run: |
+          pip install twine
+
+      - name: Publish to TestPyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          twine upload --repository testpypi dist/*
