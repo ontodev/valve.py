@@ -23,21 +23,24 @@ clean:
 cleanrs:
 	rm -Rf valve.rs/build valve.rs/test/output
 
+rs-version := $(shell grep valve\.rs VALVE.VERSION |awk '{print $$2}')
+py-version := $(shell grep valve\.py VALVE.VERSION |awk '{print $$2}')
+
 valve.rs/Cargo.toml:
 	cargo install cargo-quickinstall
 	cargo quickinstall cargo-download
-	cargo download ontodev_valve==`cat ontodev_valve.rs_version` -x -o valve.rs
-	cd valve.rs && sed "s/version = \"`cat ../ontodev_valve.rs_version`\"/version = \"`cat ../ontodev_valve.py_version`\"/" Cargo.toml > Cargo.toml.new
-	cd valve.rs && /bin/mv -f Cargo.toml.new Cargo.toml
+	cargo download ontodev_valve==${rs-version} -x -o valve.rs
+	python3 override_valve_version.py ${py-version} $@ > $@.new
+	cd valve.rs && /bin/mv -f $(@F).new $(@F)
 	cd valve.rs && ln -s ../../valve_py.rs src/
 	cd valve.rs && echo -e "\nmod valve_py;" >> src/lib.rs
-	cd valve.rs && cat ../extra_cargo_entries.toml >> Cargo.toml
+	cd valve.rs && cat ../extra_cargo_entries.toml >> $(@F)
 
 .installed: valve.rs/Cargo.toml
 	cd valve.rs && python3 -m venv .venv
 	cd valve.rs && ln -s ../requirements.txt
 	cd valve.rs && source .venv/bin/activate && pip install -U -r requirements.txt
-	source valve.rs/.venv/bin/activate && maturin develop --release -m valve.rs/Cargo.toml
+	source valve.rs/.venv/bin/activate && maturin develop --release -m $<
 	cp test/expected/* valve.rs/test/expected/
 	cp test/main.py test/insert_update.sh valve.rs/test
 	touch $@
@@ -47,3 +50,6 @@ valve.rs/build/:
 
 valve.rs/test/output:
 	mkdir -p $@
+
+blook:
+	echo ${bloob}
