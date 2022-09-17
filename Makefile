@@ -10,7 +10,7 @@ install: .installed
 
 test: cleanrs install | valve.rs/build/ valve.rs/test/output
 	cd valve.rs && source .venv/bin/activate && test/main.py --load test/src/table.tsv build/valve.db > /dev/null
-	cd valve.rs && test/round_trip.sh
+	cd valve.rs && test/round_trip.sh build/valve.db
 	cd valve.rs && scripts/export.py messages build/valve.db test/output/ column datatype prefix rule table foobar foreign_table import
 	cd valve.rs && diff -q test/expected/messages.tsv test/output/messages.tsv
 	cd valve.rs && source .venv/bin/activate && test/main.py --insert_update test/src/table.tsv build/valve.db > /dev/null
@@ -38,8 +38,8 @@ valve.rs/Cargo.toml:
 
 .installed: valve.rs/Cargo.toml
 	cd valve.rs && python3 -m venv .venv
-	cd valve.rs && ln -s ../requirements.txt
-	cd valve.rs && source .venv/bin/activate && pip install -U -r requirements.txt
+	cd valve.rs && cat ../requirements.txt >> requirements.txt
+	cd valve.rs && source .venv/bin/activate && pip install -r requirements.txt
 	source valve.rs/.venv/bin/activate && maturin develop --release -m $<
 	cp test/expected/* valve.rs/test/expected/
 	cp test/main.py test/insert_update.sh valve.rs/test
