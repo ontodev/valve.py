@@ -10,11 +10,11 @@ install: .installed
 
 test: cleanrs install | valve.rs/build/ valve.rs/test/output
 	cd valve.rs && source .venv/bin/activate && test/main.py --load test/src/table.tsv build/valve.db > /dev/null
-	cd valve.rs && test/round_trip.sh build/valve.db
-	cd valve.rs && scripts/export.py messages build/valve.db test/output/ column datatype prefix rule table foobar foreign_table import
+	cd valve.rs && source .venv/bin/activate && test/round_trip.sh build/valve.db
+	cd valve.rs && source .venv/bin/activate && scripts/export.py messages build/valve.db test/output/ column datatype prefix rule table foobar foreign_table import
 	cd valve.rs && diff -q test/expected/messages.tsv test/output/messages.tsv
 	cd valve.rs && source .venv/bin/activate && test/main.py --insert_update test/src/table.tsv build/valve.db > /dev/null
-	cd valve.rs && test/insert_update.sh
+	cd valve.rs && source .venv/bin/activate && test/insert_update.sh
 
 clean:
 	rm -Rf .installed valve.rs dist .venv
@@ -26,9 +26,10 @@ rs-version := $(shell grep valve\.rs VALVE.VERSION |awk '{print $$2}')
 py-version := $(shell grep valve\.py VALVE.VERSION |awk '{print $$2}')
 
 valve.rs/Cargo.toml:
-	cargo install cargo-quickinstall
-	cargo quickinstall cargo-download
-	cargo download ontodev_valve==${rs-version} -x -o valve.rs
+	curl -L -o valve.tar https://crates.io/api/v1/crates/ontodev_valve/${rs-version}/download
+	tar xvf valve.tar
+	rm -f valve.tar
+	mv ontodev_valve-${rs-version} valve.rs
 	python3 override_valve_version.py ${py-version} $@ > $@.new
 	cd valve.rs && /bin/mv -f $(@F).new $(@F)
 	cd valve.rs && ln -s ../../valve_py.rs src/
