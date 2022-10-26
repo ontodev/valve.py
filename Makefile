@@ -18,7 +18,6 @@ test: cleanrs install | valve.rs/build/ valve.rs/test/output
 
 clean:
 	rm -Rf .installed valve.rs dist .venv
-	git checkout valve_py.rs
 
 cleanrs:
 	rm -Rf valve.rs/build valve.rs/test/output

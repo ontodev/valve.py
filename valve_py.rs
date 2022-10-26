@@ -108,10 +108,19 @@ fn validate_row(
     Ok(SerdeValue::Object(result_row).to_string())
 }
 
-/// Given a directory in which the database is located, a table name, a row represented as a
-/// JSON string, and its associated row number, update the row in the database.
+/// Given a config map represented as a JSON string, a directory in which the database is located,
+/// a table name, a row represented as a JSON string, and its associated row number, update the row
+/// in the database.
 #[pyfunction]
-fn update_row(db_path: &str, table_name: &str, row: &str, row_number: u32) -> PyResult<()> {
+fn update_row(
+    config: &str,
+    db_path: &str,
+    table_name: &str,
+    row: &str,
+    row_number: u32,
+) -> PyResult<()> {
+    let config: SerdeValue = serde_json::from_str(config).unwrap();
+    let config = config.as_object().unwrap();
     let row: SerdeValue = serde_json::from_str(row).unwrap();
     let row = row.as_object().unwrap();
 
@@ -122,15 +131,17 @@ fn update_row(db_path: &str, table_name: &str, row: &str, row_number: u32) -> Py
     let pool = block_on(pool).unwrap();
     block_on(sqlx_query("PRAGMA foreign_keys = ON").execute(&pool)).unwrap();
 
-    block_on(update_row_rs(&pool, table_name, &row, row_number)).unwrap();
+    block_on(update_row_rs(&config, &pool, table_name, &row, row_number)).unwrap();
 
     Ok(())
 }
 
-/// Given a directory in which the database is located, a table name, and a row represented as a
-/// JSON string, insert the new row to the database.
+/// Given a config map represented as a JSON string, a directory in which the database is located,
+/// a table name, and a row represented as a JSON string, insert the new row to the database.
 #[pyfunction]
-fn insert_new_row(db_path: &str, table_name: &str, row: &str) -> PyResult<u32> {
+fn insert_new_row(config: &str, db_path: &str, table_name: &str, row: &str) -> PyResult<u32> {
+    let config: SerdeValue = serde_json::from_str(config).unwrap();
+    let config = config.as_object().unwrap();
     let row: SerdeValue = serde_json::from_str(row).unwrap();
     let row = row.as_object().unwrap();
 
@@ -141,7 +152,7 @@ fn insert_new_row(db_path: &str, table_name: &str, row: &str) -> PyResult<u32> {
     let pool = block_on(pool).unwrap();
     block_on(sqlx_query("PRAGMA foreign_keys = ON").execute(&pool)).unwrap();
 
-    let new_row_number = block_on(insert_new_row_rs(&pool, table_name, &row)).unwrap();
+    let new_row_number = block_on(insert_new_row_rs(&config, &pool, table_name, &row)).unwrap();
     Ok(new_row_number)
 }
 

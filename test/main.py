@@ -73,7 +73,7 @@ if __name__ == "__main__":
         }
 
         result_row = validate_row(config, args.db_path, "foobar", json.dumps(row), True, 1)
-        update_row(args.db_path, "foobar", result_row, 1)
+        update_row(config, args.db_path, "foobar", result_row, 1)
 
         row = {
             "id": {"messages": [], "valid": True, "value": "BFO:0000027"},
@@ -90,4 +90,4 @@ if __name__ == "__main__":
         }
 
         result_row = validate_row(config, args.db_path, "import", json.dumps(row), False)
-        new_row_num = insert_new_row(args.db_path, "import", result_row)
+        new_row_num = insert_new_row(config, args.db_path, "import", result_row)
