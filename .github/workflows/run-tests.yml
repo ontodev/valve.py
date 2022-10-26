@@ -29,6 +29,11 @@ jobs:
           default: true
           override: true
 
+      - name: Install psycopg2
+        run: |
+          sudo apt-get update
+          sudo apt-get install python3-psycopg2
+
       - name: Set up Python version ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
