@@ -11,10 +11,20 @@ use futures::executor::block_on;
 use pyo3::prelude::{pyfunction, pymodule, wrap_pyfunction, PyModule, PyResult, Python};
 use serde_json::Value as SerdeValue;
 use sqlx::{
-    any::{AnyConnectOptions, AnyPoolOptions},
+    any::{AnyConnectOptions, AnyKind, AnyPoolOptions},
     query as sqlx_query,
 };
 use std::str::FromStr;
+
+/// Given a &str representing the location of a (sqlite or postgresql) database, return a String in
+/// the form required to connect to it via sqlx.
+fn get_connection_string(db_path: &str) -> String {
+    if !db_path.starts_with("postgresql://") && !db_path.starts_with("sqlite://") {
+        return format!("sqlite://{}", db_path);
+    } else {
+        return db_path.to_string();
+    }
+}
 
 /// Given a path to a table table file (table.tsv), a directory in which to find/create a database:
 /// configure the database using the configuration which can be looked up using the table table,
@@ -41,9 +51,8 @@ fn get_matching_values(
     let config: SerdeValue = serde_json::from_str(config).unwrap();
     let config = config.as_object().unwrap();
 
-    // Note that we use mode=ro here instead of mode=rwc
     let connection_options =
-        AnyConnectOptions::from_str(format!("sqlite://{}?mode=ro", db_path).as_str()).unwrap();
+        AnyConnectOptions::from_str(get_connection_string(db_path).as_str()).unwrap();
     let pool = AnyPoolOptions::new().max_connections(5).connect_with(connection_options);
     let pool = block_on(pool).unwrap();
 
@@ -82,9 +91,8 @@ fn validate_row(
     let row: SerdeValue = serde_json::from_str(row).unwrap();
     let row = row.as_object().unwrap();
 
-    // Note that we use mode=ro here instead of mode=rwc
     let connection_options =
-        AnyConnectOptions::from_str(format!("sqlite://{}?mode=ro", db_path).as_str()).unwrap();
+        AnyConnectOptions::from_str(get_connection_string(db_path).as_str()).unwrap();
     let pool = AnyPoolOptions::new().max_connections(5).connect_with(connection_options);
     let pool = block_on(pool).unwrap();
 
@@ -124,12 +132,13 @@ fn update_row(
     let row: SerdeValue = serde_json::from_str(row).unwrap();
     let row = row.as_object().unwrap();
 
-    // Note that we use mode=rw here instead of mode=rwc
     let connection_options =
-        AnyConnectOptions::from_str(format!("sqlite://{}?mode=rw", db_path).as_str()).unwrap();
+        AnyConnectOptions::from_str(get_connection_string(db_path).as_str()).unwrap();
     let pool = AnyPoolOptions::new().max_connections(5).connect_with(connection_options);
     let pool = block_on(pool).unwrap();
-    block_on(sqlx_query("PRAGMA foreign_keys = ON").execute(&pool)).unwrap();
+    if pool.any_kind() == AnyKind::Sqlite {
+        block_on(sqlx_query("PRAGMA foreign_keys = ON").execute(&pool)).unwrap();
+    }
 
     block_on(update_row_rs(&config, &pool, table_name, &row, row_number)).unwrap();
 
@@ -145,12 +154,13 @@ fn insert_new_row(config: &str, db_path: &str, table_name: &str, row: &str) -> P
     let row: SerdeValue = serde_json::from_str(row).unwrap();
     let row = row.as_object().unwrap();
 
-    // Note that we use mode=rw here instead of mode=rwc
     let connection_options =
-        AnyConnectOptions::from_str(format!("sqlite://{}?mode=rw", db_path).as_str()).unwrap();
+        AnyConnectOptions::from_str(get_connection_string(db_path).as_str()).unwrap();
     let pool = AnyPoolOptions::new().max_connections(5).connect_with(connection_options);
     let pool = block_on(pool).unwrap();
-    block_on(sqlx_query("PRAGMA foreign_keys = ON").execute(&pool)).unwrap();
+    if pool.any_kind() == AnyKind::Sqlite {
+        block_on(sqlx_query("PRAGMA foreign_keys = ON").execute(&pool)).unwrap();
+    }
 
     let new_row_number = block_on(insert_new_row_rs(&config, &pool, table_name, &row)).unwrap();
     Ok(new_row_number)

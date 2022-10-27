@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import re
 import sys
 import time
 from ontodev_valve import (
@@ -31,17 +32,34 @@ if __name__ == "__main__":
         "table",
         help="A TSV file containing high-level information about the data in the database",
     )
-    parser.add_argument("db_path", help="The directory in which to save the database file")
+    parser.add_argument(
+        "db",
+        help="""Either a database connection URL or a path to a SQLite database file. In the
+        case of a URL, you must use one of the following schemes: potgresql://<URL>
+        (for postgreSQL), sqlite://<relative path> or file:<relative path> (for SQLite).
+        """,
+    )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--load", action="store_true")
     group.add_argument("--insert_update", action="store_true")
     args = parser.parse_args()
 
+    db = args.db
+    if not db.startswith("postgresql://"):
+        m = re.search(r"(^(file:|sqlite://))?(.+?)(\?.+)?$", db)
+        if m:
+            path = m[3]
+            params = m[4] or ""
+            db = f"{path}{params}"
+        else:
+            print(f"Could not parse database specification: {db}", file=sys.stderr)
+            sys.exit(1)
+
     if args.load:
-        config = configure_and_or_load(args.table, args.db_path, True)
+        config = configure_and_or_load(args.table, args.db, True)
     elif args.insert_update:
-        config = configure_and_or_load(args.table, args.db_path, False)
-        matching_values = get_matching_values(config, args.db_path, "foobar", "child")
+        config = configure_and_or_load(args.table, args.db, False)
+        matching_values = get_matching_values(config, args.db, "foobar", "child")
         matching_values = json.loads(matching_values)
         assert matching_values == [
             {"id": "a", "label": "a", "order": 1},
@@ -72,12 +90,12 @@ if __name__ == "__main__":
             },
         }
 
-        result_row = validate_row(config, args.db_path, "foobar", json.dumps(row), True, 1)
-        update_row(config, args.db_path, "foobar", result_row, 1)
+        result_row = validate_row(config, args.db, "foobar", json.dumps(row), True, 1)
+        update_row(config, args.db, "foobar", result_row, 1)
 
         row = {
             "id": {"messages": [], "valid": True, "value": "BFO:0000027"},
-            "label": {"messages": [], "valid": True, "value": "car"},
+            "label": {"messages": [], "valid": True, "value": "bazaar"},
             "parent": {
                 "messages": [
                     {"level": "error", "message": "An unrelated error", "rule": "custom:unrelated"}
@@ -89,5 +107,5 @@ if __name__ == "__main__":
             "type": {"messages": [], "valid": True, "value": "owl:Class"},
         }
 
-        result_row = validate_row(config, args.db_path, "import", json.dumps(row), False)
-        new_row_num = insert_new_row(config, args.db_path, "import", result_row)
+        result_row = validate_row(config, args.db, "import", json.dumps(row), False)
+        new_row_num = insert_new_row(config, args.db, "import", result_row)
