@@ -59,6 +59,7 @@ jobs:
           mv -f valve.rs/Cargo.toml.new valve.rs/Cargo.toml
 
       - name: Create a soft-link to the valve rust library source code file.
+        shell: bash
         working-directory: ./valve.rs
         run: |
           ln -s ../../valve_py.rs src/
