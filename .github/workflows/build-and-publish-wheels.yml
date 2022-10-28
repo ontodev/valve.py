@@ -37,11 +37,6 @@ jobs:
           default: true
           override: true
 
-      - name: Install cargo-quickinstall and cargo-download
-        run: |
-          cargo install cargo-quickinstall
-          cargo quickinstall cargo-download
-
       - name: Set environment variables corresponding to the valve.rs and valve.py versions.
         shell: bash
         run: |
@@ -50,10 +45,12 @@ jobs:
 
       # Note that we need to specify the bash shell here in order for the string interpolation to
       # work on the Windows runner.
-      - name: Download the version, specified in the file VALVE.VERSION, of valve's rust library.
+      - name: Retrieve and extract the right version of valve.rs from crates.io.
         shell: bash
         run: |
-          cargo download ontodev_valve==$VALVE_RS_VERSION -x -o valve.rs
+          curl -L -o valve.tar https://crates.io/api/v1/crates/ontodev_valve/$VALVE_RS_VERSION/download
+          tar xvf valve.tar
+          mv ontodev_valve-$VALVE_RS_VERSION valve.rs
 
       - name: Override the valve.rs version in Cargo.toml with the valve.py version
         shell: bash
@@ -121,9 +118,9 @@ jobs:
         run: |
           pip install twine
 
-      - name: Publish to TestPyPI
+      - name: Publish to PyPI
         env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
         run: |
           twine upload --repository testpypi dist/*
