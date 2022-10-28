@@ -1,0 +1,129 @@
+name: Set up valve rust bindings
+
+on:
+  release:
+    types: [released]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish-wheels:
+    strategy:
+      matrix:
+        target: [
+          { runner: "macos-11", arch: "x86_64-apple-darwin" },
+          { runner: "macos-11", arch: "aarch64-apple-darwin" },
+          { runner: "windows-2022", arch: "x86_64-pc-windows-msvc" },
+          { runner: "ubuntu-20.04", arch: "x86_64-unknown-linux-gnu" },
+          { runner: "ubuntu-20.04", arch: "x86_64-unknown-linux-musl" },
+        ]
+    runs-on: ${{ matrix.target.runner }}
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+
+      - name: Install musl-tools (MUSL)
+        if: ${{ matrix.target.runner == 'ubuntu-20.04' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install musl-tools
+
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target.arch }}
+          default: true
+          override: true
+
+      - name: Install cargo-quickinstall and cargo-download
+        run: |
+          cargo install cargo-quickinstall
+          cargo quickinstall cargo-download
+
+      - name: Set environment variables corresponding to the valve.rs and valve.py versions.
+        shell: bash
+        run: |
+          echo "VALVE_PY_VERSION=$(grep valve\.py VALVE.VERSION |awk '{print $2}')" >> $GITHUB_ENV
+          echo "VALVE_RS_VERSION=$(grep valve\.rs VALVE.VERSION |awk '{print $2}')" >> $GITHUB_ENV
+
+      # Note that we need to specify the bash shell here in order for the string interpolation to
+      # work on the Windows runner.
+      - name: Download the version, specified in the file VALVE.VERSION, of valve's rust library.
+        shell: bash
+        run: |
+          cargo download ontodev_valve==$VALVE_RS_VERSION -x -o valve.rs
+
+      - name: Override the valve.rs version in Cargo.toml with the valve.py version
+        shell: bash
+        run: |
+          python3 override_valve_version.py $VALVE_PY_VERSION valve.rs/Cargo.toml > valve.rs/Cargo.toml.new
+          mv -f valve.rs/Cargo.toml.new valve.rs/Cargo.toml
+
+      - name: Create a soft-link to the valve rust library source code file.
+        working-directory: ./valve.rs
+        run: |
+          ln -s ../../valve_py.rs src/
+
+      - name: Edit lib.rs and add dependencies to Cargo.toml
+        working-directory: ./valve.rs
+        run: |
+          echo "mod valve_py;" >> src/lib.rs
+          cat ../extra_cargo_entries.toml >> Cargo.toml
+
+      - name: Build wheels for Python 3.8 (MUSL)
+        if: ${{ matrix.target.runner == 'ubuntu-20.04' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          manylinux: musllinux_1_2
+          args: --release --interpreter python3.8 --out dist -m valve.rs/Cargo.toml
+
+      - name: Build wheels for Python 3.8 (non-MUSL)
+        if: ${{ matrix.target.runner != 'ubuntu-20.04' || matrix.target.arch != 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          args: --release --interpreter python3.8 --out dist -m valve.rs/Cargo.toml
+
+      - name: Build wheels for Python 3.9 (MUSL)
+        if: ${{ matrix.target.runner == 'ubuntu-20.04' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          manylinux: musllinux_1_2
+          args: --release --interpreter python3.9 --out dist -m valve.rs/Cargo.toml
+
+      - name: Build wheels for Python 3.9 (non-MUSL)
+        if: ${{ matrix.target.runner != 'ubuntu-20.04' || matrix.target.arch != 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          args: --release --interpreter python3.9 --out dist -m valve.rs/Cargo.toml
+
+      - name: Build wheels for Python 3.10 (MUSL)
+        if: ${{ matrix.target.runner == 'ubuntu-20.04' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          manylinux: musllinux_1_2
+          args: --release --interpreter python3.10 --out dist -m valve.rs/Cargo.toml
+
+      - name: Build wheels for Python 3.10 (non-MUSL)
+        if: ${{ matrix.target.runner != 'ubuntu-20.04' || matrix.target.arch != 'x86_64-unknown-linux-musl' }}
+        uses: messense/maturin-action@v1
+        with:
+          target: ${{ matrix.target.arch }}
+          args: --release --interpreter python3.10 --out dist -m valve.rs/Cargo.toml
+
+      - name: Install twine
+        run: |
+          pip install twine
+
+      - name: Publish to TestPyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        run: |
+          twine upload --repository testpypi dist/*

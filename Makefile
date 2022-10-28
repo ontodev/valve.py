@@ -1,85 +1,78 @@
-## Grammar
-#
-# Generate grammar, then ...
-# 1. Remove init babel from first line
-# 2. Encase grammar in triple quotes to allow for line breaks
-# 3. Replace literal '\n' with line breaks
-# 4. Fix extra escaping
-# 5. Fix extra escaping on single quotes
-# 6. Add escaping for double quotes (double quotes must be escaped within double quoted text)
-# 7. Fix empty escaping (Lark will yell at you for \\)
-# 8. Add x flag to regex using '\n'
-# 9. Get the first result and convert to a Python dictionary
-# 10. Format using black
+MAKEFLAGS += --warn-undefined-variables
+.DEFAULT_GOAL := valve.rs/target/release/ontodev_valve
+SHELL := bash
+.SHELLFLAGS := -eu -o pipefail -c
+.DELETE_ON_ERROR:
+.SUFFIXES:
 
-build build/distinct:
+.PHONY: test pg_test sqlite_test clean cleandb cleantestout
+
+clean:
+	rm -Rf valve.rs dist .venv
+
+cleandb:
+	rm -Rf valve.rs/build
+
+cleantestout:
+	rm -Rf valve.rs/test/output
+
+valve.rs/test/main.py: test/main.py | valve.rs
+	cp -pf $< $@
+
+valve.rs/test/insert_update.sh: test/insert_update.sh | valve.rs
+	cp -pf $< $@
+
+valve.rs/build/: | valve.rs
 	mkdir -p $@
 
-build/valve_grammar.ne: | build
-	curl -Lk https://raw.githubusercontent.com/ontodev/valve.js/main/valve_grammar.ne > $@
+valve.rs/test/output: | valve.rs
+	mkdir -p $@
 
-build/nearley: | build
-	cd build && git clone https://github.com/Hardmath123/nearley
+test: pg_test sqlite_test
 
-build/valve_grammar.py: build/valve_grammar.ne | build/nearley
-	python3 -m lark.tools.nearley $< start $| --es6 > $@
+pg_test: valve.rs/target/release/ontodev_valve cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/test/output
+	@echo "Testing valve on postgresql ..."
+	# This target assumes that we have a postgresql server, accessible by the current user via the
+	# UNIX socket /var/run/postgresql, in which a database called `valve_postgres` has been created.
+	# It also requires that `psycopg2` has been installed.
+	cp -pf test/expected/* valve.rs/test/expected/
+	cd valve.rs && source .venv/bin/activate && test/main.py --load test/src/table.tsv postgresql:///valve_postgres > /dev/null
+	cd valve.rs && source .venv/bin/activate && test/round_trip.sh postgresql:///valve_postgres
+	cd valve.rs && source .venv/bin/activate && scripts/export.py messages postgresql:///valve_postgres test/output/ column datatype prefix rule table foobar foreign_table import numeric
+	cd valve.rs && diff -q test/expected/messages.tsv test/output/messages.tsv
+	cd valve.rs && source .venv/bin/activate && test/main.py --insert_update test/src/table.tsv postgresql:///valve_postgres > /dev/null
+	cd valve.rs && source .venv/bin/activate && test/insert_update.sh postgresql:///valve_postgres
+	@echo "Test succeeded!"
 
-valve/parse.py: build/valve_grammar.py
-	tail -n +2 $< | \
-	perl -pe "s/grammar = (.+)/grammar = ''\1''/g" | \
-	perl -pe 's/(?<!\\)\\n/\n/gx' | \
-	perl -pe 's/\\\\/\\/gx' | \
-	perl -pe "s/\\\'/'/g" | \
-	perl -pe 's/"\\\"/"\\\\"/g' | \
-	perl -pe 's/"\\\\"$$/"\\\\\\\\"/g' | \
-	perl -pe 's/(\/\[.*\\n.*]\/)/\1x/g'| \
-	perl -pe 's/\[\^\/\]/[^\\\/]/g' | \
-	sed -e "s/parse(text))/parse(text)).to_dict()/g" > $@
-	black --line-length 100 $@
+sqlite_test: valve.rs/target/release/ontodev_valve cleandb cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/build/ valve.rs/test/output
+	@echo "Testing valve on sqlite ..."
+	cp -pf test/expected/* valve.rs/test/expected/
+	cd valve.rs && source .venv/bin/activate && test/main.py --load test/src/table.tsv build/valve.db > /dev/null
+	cd valve.rs && source .venv/bin/activate && test/round_trip.sh build/valve.db
+	cd valve.rs && source .venv/bin/activate && scripts/export.py messages build/valve.db test/output/ column datatype prefix rule table foobar foreign_table import numeric
+	cd valve.rs && diff -q test/expected/messages.tsv test/output/messages.tsv
+	cd valve.rs && source .venv/bin/activate && test/main.py --insert_update test/src/table.tsv build/valve.db > /dev/null
+	cd valve.rs && source .venv/bin/activate && test/insert_update.sh build/valve.db
+	@echo "Test succeeded!"
 
+rs-version := $(shell grep valve\.rs VALVE.VERSION |awk '{print $$2}')
+py-version := $(shell grep valve\.py VALVE.VERSION |awk '{print $$2}')
 
-## Linting
+valve.rs:
+	curl -L -o valve.tar https://crates.io/api/v1/crates/ontodev_valve/${rs-version}/download
+	tar xvf valve.tar
+	rm -f valve.tar
+	mv ontodev_valve-${rs-version} valve.rs
+	cd valve.rs && python3 -m venv .venv
+	cd valve.rs && cat ../requirements.txt >> requirements.txt
+	cd valve.rs && source .venv/bin/activate && pip install -r requirements.txt
 
-.PHONY: lint
-lint:
-	flake8 --max-line-length 100 --ignore E203,W503 $(PYTHON_FILES)
-	black --line-length 100 --quiet --check $(PYTHON_FILES)
+valve.rs/Cargo.toml: | valve.rs
+	python3 override_valve_version.py ${py-version} $@ > $@.new
+	cd valve.rs && /bin/mv -f $(@F).new $(@F)
+	cd valve.rs && ln -s ../../valve_py.rs src/
+	cd valve.rs && echo -e "\nmod valve_py;" >> src/lib.rs
+	cd valve.rs && cat ../extra_cargo_entries.toml >> $(@F)
 
-.PHONY: format
-format:
-	black --line-length 100 $(PYTHON_FILES)
-
-
-## Testing
-
-valve-main:
-	git clone https://github.com/ontodev/valve.git $@
-
-build/errors.tsv: valve-main | build
-	valve valve-main/tests/inputs -o $@ || true
-
-build/errors-distinct.tsv: valve-main | build/distinct
-	valve valve-main/tests/inputs -d build/distinct -o $@ || true
-
-python-diff: valve-main build/errors.tsv
-	python3 valve-main/tests/compare.py valve-main/tests/errors.tsv build/errors.tsv
-
-python-diff-distinct: valve-main build/errors-distinct.tsv
-	python3 valve-main/tests/compare.py valve-main/tests/errors-distinct.tsv build/errors-distinct.tsv
-
-.PHONY: unit-test
-unit-test:
-	pytest tests
-
-.PHONY: integration-test
-integration-test:
-	make python-diff
-	make python-diff-distinct
-	@echo "SUCCESS: Tests ran as expected."
-
-.PHONY: test
-test: unit-test integration-test
-
-.PHONY: clean
-clean:
-	rm -rf build valve-main
+valve.rs/target/release/ontodev_valve: valve.rs/Cargo.toml $(wildcard valve.rs/src/*)
+	source valve.rs/.venv/bin/activate && maturin develop --release -m $<
