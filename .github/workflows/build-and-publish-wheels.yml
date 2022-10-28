@@ -136,4 +136,4 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           id: ${{ github.event.release.id }}
-          body: ".whl files may be downloaded from https://pypi.org/project/ontodev-valve/"
+          body: ".whl files for ${{ matrix.target.arch }} may be downloaded from https://pypi.org/project/ontodev-valve/"
