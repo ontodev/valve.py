@@ -15,4 +15,4 @@ VALVE bindings for Python
 
 ## Before creating a new release
 
-Edit the file `VALVE.VERSION` and adjust the version of valve.py. After pushing your commit, create a new release in GitHub with the new version number as the release name and tag.
+Edit the file `VALVE.VERSION` and adjust the version of valve.py (and, if necessary, valve.rs). After pushing your commit, create a new release in GitHub with the new version number as the release name and tag.
