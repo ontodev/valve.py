@@ -130,3 +130,10 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
         run: |
           twine upload dist/*
+
+      - name: Add Link to PyPI to release body
+        uses: irongut/EditRelease@v1.2.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          id: ${{ github.event.release.id }}
+          body: ".whl files may be downloaded from https://pypi.org/project/ontodev-valve/"
