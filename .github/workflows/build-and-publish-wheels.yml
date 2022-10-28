@@ -73,7 +73,7 @@ jobs:
       - name: Override valve.rs's README.md with valve.py's
         working-directory: ./valve.rs
         run: |
-          cp -f ../README.md .
+          cp ../README.md .
 
       - name: Build wheels for Python 3.8 (MUSL)
         if: ${{ matrix.target.runner == 'ubuntu-20.04' && matrix.target.arch == 'x86_64-unknown-linux-musl' }}
