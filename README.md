@@ -1,30 +1,25 @@
 # valve.py
 VALVE bindings for Python
 
-## Setup
+## Install/setup from source
 
-	git clone git@github.com:ontodev/valve.py.git
-	cd valve.py
-	make
+1. Retrieve valve.py from GitHub:
 
-## Testing
+	    git clone git@github.com:ontodev/valve.py.git
+	    cd valve.py
+	    make test
 
-    cd valve.py
-	make test
-
-## Usage
-
-1. Activate the virtual environment:
+2. Activate the virtual environment:
 
         source valve.rs/.venv/bin/activate
 
-2. Add the statement
+3. Add the statement
 
         import ontodev_valve
 
     to the top of your python script.
 
-### Examples
+## Usage examples
 
 See the file `test/main.py` for usage examples.
 
