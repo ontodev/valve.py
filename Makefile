@@ -1,5 +1,5 @@
 MAKEFLAGS += --warn-undefined-variables
-.DEFAULT_GOAL := valve.rs/target/debug/ontodev_valve
+.DEFAULT_GOAL := valve.rs/target/release/ontodev_valve
 SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DELETE_ON_ERROR:
@@ -29,7 +29,7 @@ test: pg_test sqlite_test
 
 tables_to_test = column datatype rule table table1 table2 table3 table4 table5
 
-pg_test: valve.rs/target/debug/ontodev_valve cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/test/output
+pg_test: valve.rs/target/release/ontodev_valve cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/test/output
 	@echo "Testing valve on postgresql ..."
 	# This target assumes that we have a postgresql server, accessible by the current user via the
 	# UNIX socket /var/run/postgresql, in which a database called `valve_postgres` has been created.
@@ -42,7 +42,7 @@ pg_test: valve.rs/target/debug/ontodev_valve cleantestout valve.rs/test/main.py 
 	cd valve.rs && source .venv/bin/activate && test/insert_update.sh postgresql:///valve_postgres
 	@echo "Test succeeded!"
 
-sqlite_test: valve.rs/target/debug/ontodev_valve cleandb cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/build/ valve.rs/test/output
+sqlite_test: valve.rs/target/release/ontodev_valve cleandb cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/build/ valve.rs/test/output
 	@echo "Testing valve on sqlite ..."
 	cd valve.rs && source .venv/bin/activate && test/main.py --load test/src/table.tsv build/valve.db > /dev/null
 	cd valve.rs && source .venv/bin/activate && test/round_trip.sh build/valve.db
@@ -56,11 +56,10 @@ rs-version := $(shell grep valve\.rs VALVE.VERSION |awk '{print $$2}')
 py-version := $(shell grep valve\.py VALVE.VERSION |awk '{print $$2}')
 
 valve.rs:
-	#curl -L -o valve.tar https://crates.io/api/v1/crates/ontodev_valve/${rs-version}/download
-	#tar xvf valve.tar
-	#rm -f valve.tar
-	#mv ontodev_valve-${rs-version} valve.rs
-	cp -rp ../valve.rs .
+	curl -L -o valve.tar https://crates.io/api/v1/crates/ontodev_valve/${rs-version}/download
+	tar xvf valve.tar
+	rm -f valve.tar
+	mv ontodev_valve-${rs-version} valve.rs
 	cd valve.rs && python3 -m venv .venv
 	cd valve.rs && cat ../requirements.txt >> requirements.txt
 	cd valve.rs && source .venv/bin/activate && pip install -r requirements.txt
@@ -72,5 +71,5 @@ valve.rs/Cargo.toml: | valve.rs
 	cd valve.rs && echo -e "\nmod valve_py;" >> src/lib.rs
 	cd valve.rs && cat ../extra_cargo_entries.toml >> $(@F)
 
-valve.rs/target/debug/ontodev_valve: valve.rs/Cargo.toml $(wildcard valve.rs/src/*)
-	source valve.rs/.venv/bin/activate && maturin develop -m $<
+valve.rs/target/release/ontodev_valve: valve.rs/Cargo.toml $(wildcard valve.rs/src/*)
+	source valve.rs/.venv/bin/activate && maturin develop --release -m $<
