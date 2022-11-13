@@ -72,6 +72,12 @@ if __name__ == "__main__":
             {"id": "h", "label": "h", "order": 8},
         ]
 
+        matching_values = get_matching_values(config, args.db, "table6", "child", "7")
+        matching_values = json.loads(matching_values)
+        assert matching_values == [
+            {"id": "7", "label": "7", "order": 1},
+        ]
+
         # NOTE: No validation of the validate/insert/update functions is done below. You must use an
         # external script to fetch the data from the database and run a diff against a known good
         # sample.
@@ -94,6 +100,23 @@ if __name__ == "__main__":
         update_row(config, args.db, "table2", result_row, 1)
 
         row = {
+            "child": {"messages": [], "valid": True, "value": 2},
+            "parent": {"messages": [], "valid": True, "value": 6},
+            "xyzzy": {"messages": [], "valid": True, "value": 23},
+            "foo": {"messages": [], "valid": True, "value": "a"},
+            "bar": {
+                "messages": [
+                    {"level": "error", "message": "An unrelated error", "rule": "custom:unrelated"}
+                ],
+                "valid": False,
+                "value": 2,
+            },
+        }
+
+        result_row = validate_row(config, args.db, "table6", json.dumps(row), True, 1)
+        update_row(config, args.db, "table6", result_row, 1)
+
+        row = {
             "id": {"messages": [], "valid": True, "value": "BFO:0000027"},
             "label": {"messages": [], "valid": True, "value": "bazaar"},
             "parent": {
@@ -109,3 +132,20 @@ if __name__ == "__main__":
 
         result_row = validate_row(config, args.db, "table3", json.dumps(row), False)
         new_row_num = insert_new_row(config, args.db, "table3", result_row)
+
+        row = {
+            "child": {"messages": [], "valid": True, "value": 2},
+            "parent": {"messages": [], "valid": True, "value": 6},
+            "xyzzy": {"messages": [], "valid": True, "value": 23},
+            "foo": {"messages": [], "valid": True, "value": "a"},
+            "bar": {
+                "messages": [
+                    {"level": "error", "message": "An unrelated error", "rule": "custom:unrelated"}
+                ],
+                "valid": False,
+                "value": 2,
+            },
+        }
+
+        result_row = validate_row(config, args.db, "table6", json.dumps(row), False)
+        new_row_num = insert_new_row(config, args.db, "table6", result_row)

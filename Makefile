@@ -27,7 +27,7 @@ valve.rs/test/output: | valve.rs
 
 test: pg_test sqlite_test
 
-tables_to_test = column datatype rule table table1 table2 table3 table4 table5
+tables_to_test = column datatype rule table table1 table2 table3 table4 table5 table6
 
 pg_test: valve.rs/target/release/ontodev_valve cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/test/output
 	@echo "Testing valve on postgresql ..."
