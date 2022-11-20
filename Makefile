@@ -35,7 +35,7 @@ pg_test: valve.rs/target/release/ontodev_valve cleantestout valve.rs/test/main.p
 	# UNIX socket /var/run/postgresql, in which a database called `valve_postgres` has been created.
 	# It also requires that `psycopg2` has been installed.
 	cd valve.rs && source .venv/bin/activate && test/main.py --load test/src/table.tsv postgresql:///valve_postgres > /dev/null
-	cd valve.rs && source .venv/bin/activate && test/round_trip.sh postgresql:///valve_postgres
+	cd valve.rs && source .venv/bin/activate && test/round_trip.sh postgresql:///valve_postgres test/src/table.tsv
 	cd valve.rs && source .venv/bin/activate && scripts/export.py messages postgresql:///valve_postgres test/output/ $(tables_to_test)
 	cd valve.rs && diff -q test/expected/messages.tsv test/output/messages.tsv
 	cd valve.rs && source .venv/bin/activate && test/main.py --insert_update test/src/table.tsv postgresql:///valve_postgres > /dev/null
@@ -45,7 +45,7 @@ pg_test: valve.rs/target/release/ontodev_valve cleantestout valve.rs/test/main.p
 sqlite_test: valve.rs/target/release/ontodev_valve cleandb cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/build/ valve.rs/test/output
 	@echo "Testing valve on sqlite ..."
 	cd valve.rs && source .venv/bin/activate && test/main.py --load test/src/table.tsv build/valve.db > /dev/null
-	cd valve.rs && source .venv/bin/activate && test/round_trip.sh build/valve.db
+	cd valve.rs && source .venv/bin/activate && test/round_trip.sh build/valve.db test/src/table.tsv
 	cd valve.rs && source .venv/bin/activate && scripts/export.py messages build/valve.db test/output/ $(tables_to_test)
 	cd valve.rs && diff -q test/expected/messages.tsv test/output/messages.tsv
 	cd valve.rs && source .venv/bin/activate && test/main.py --insert_update test/src/table.tsv build/valve.db > /dev/null
