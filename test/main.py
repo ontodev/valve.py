@@ -70,6 +70,7 @@ if __name__ == "__main__":
             {"id": "f", "label": "f", "order": 6},
             {"id": "g", "label": "g", "order": 7},
             {"id": "h", "label": "h", "order": 8},
+            {"id": "k", "label": "k", "order": 9},
         ]
 
         matching_values = get_matching_values(config, args.db, "table6", "child", "7")
