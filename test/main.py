@@ -56,10 +56,10 @@ if __name__ == "__main__":
             sys.exit(1)
 
     if args.load:
-        config = configure_and_or_load(args.table, args.db, True)
+        config = configure_and_or_load(args.table, args.db, True, False)
     elif args.insert_update:
-        config = configure_and_or_load(args.table, args.db, False)
-        matching_values = get_matching_values(config, args.db, "foobar", "child")
+        config = configure_and_or_load(args.table, args.db, False, False)
+        matching_values = get_matching_values(config, args.db, "table2", "child")
         matching_values = json.loads(matching_values)
         assert matching_values == [
             {"id": "a", "label": "a", "order": 1},
@@ -70,6 +70,13 @@ if __name__ == "__main__":
             {"id": "f", "label": "f", "order": 6},
             {"id": "g", "label": "g", "order": 7},
             {"id": "h", "label": "h", "order": 8},
+            {"id": "k", "label": "k", "order": 9},
+        ]
+
+        matching_values = get_matching_values(config, args.db, "table6", "child", "7")
+        matching_values = json.loads(matching_values)
+        assert matching_values == [
+            {"id": "7", "label": "7", "order": 1},
         ]
 
         # NOTE: No validation of the validate/insert/update functions is done below. You must use an
@@ -80,7 +87,7 @@ if __name__ == "__main__":
             "child": {"messages": [], "valid": True, "value": "b"},
             "parent": {"messages": [], "valid": True, "value": "f"},
             "xyzzy": {"messages": [], "valid": True, "value": "w"},
-            "foo": {"messages": [], "valid": True, "value": "A"},
+            "foo": {"messages": [], "valid": True, "value": 1},
             "bar": {
                 "messages": [
                     {"level": "error", "message": "An unrelated error", "rule": "custom:unrelated"}
@@ -90,8 +97,25 @@ if __name__ == "__main__":
             },
         }
 
-        result_row = validate_row(config, args.db, "foobar", json.dumps(row), True, 1)
-        update_row(config, args.db, "foobar", result_row, 1)
+        result_row = validate_row(config, args.db, "table2", json.dumps(row), True, 1)
+        update_row(config, args.db, "table2", result_row, 1)
+
+        row = {
+            "child": {"messages": [], "valid": True, "value": 2},
+            "parent": {"messages": [], "valid": True, "value": 6},
+            "xyzzy": {"messages": [], "valid": True, "value": 23},
+            "foo": {"messages": [], "valid": True, "value": "a"},
+            "bar": {
+                "messages": [
+                    {"level": "error", "message": "An unrelated error", "rule": "custom:unrelated"}
+                ],
+                "valid": False,
+                "value": 2,
+            },
+        }
+
+        result_row = validate_row(config, args.db, "table6", json.dumps(row), True, 1)
+        update_row(config, args.db, "table6", result_row, 1)
 
         row = {
             "id": {"messages": [], "valid": True, "value": "BFO:0000027"},
@@ -107,5 +131,22 @@ if __name__ == "__main__":
             "type": {"messages": [], "valid": True, "value": "owl:Class"},
         }
 
-        result_row = validate_row(config, args.db, "import", json.dumps(row), False)
-        new_row_num = insert_new_row(config, args.db, "import", result_row)
+        result_row = validate_row(config, args.db, "table3", json.dumps(row), False)
+        new_row_num = insert_new_row(config, args.db, "table3", result_row)
+
+        row = {
+            "child": {"messages": [], "valid": True, "value": 2},
+            "parent": {"messages": [], "valid": True, "value": 6},
+            "xyzzy": {"messages": [], "valid": True, "value": 23},
+            "foo": {"messages": [], "valid": True, "value": "a"},
+            "bar": {
+                "messages": [
+                    {"level": "error", "message": "An unrelated error", "rule": "custom:unrelated"}
+                ],
+                "valid": False,
+                "value": 2,
+            },
+        }
+
+        result_row = validate_row(config, args.db, "table6", json.dumps(row), False)
+        new_row_num = insert_new_row(config, args.db, "table6", result_row)

@@ -19,9 +19,6 @@ cleantestout:
 valve.rs/test/main.py: test/main.py | valve.rs
 	cp -pf $< $@
 
-valve.rs/test/insert_update.sh: test/insert_update.sh | valve.rs
-	cp -pf $< $@
-
 valve.rs/build/: | valve.rs
 	mkdir -p $@
 
@@ -30,15 +27,16 @@ valve.rs/test/output: | valve.rs
 
 test: pg_test sqlite_test
 
+tables_to_test = column datatype rule table table1 table2 table3 table4 table5 table6
+
 pg_test: valve.rs/target/release/ontodev_valve cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/test/output
 	@echo "Testing valve on postgresql ..."
 	# This target assumes that we have a postgresql server, accessible by the current user via the
 	# UNIX socket /var/run/postgresql, in which a database called `valve_postgres` has been created.
 	# It also requires that `psycopg2` has been installed.
-	cp -pf test/expected/* valve.rs/test/expected/
 	cd valve.rs && source .venv/bin/activate && test/main.py --load test/src/table.tsv postgresql:///valve_postgres > /dev/null
-	cd valve.rs && source .venv/bin/activate && test/round_trip.sh postgresql:///valve_postgres
-	cd valve.rs && source .venv/bin/activate && scripts/export.py messages postgresql:///valve_postgres test/output/ column datatype prefix rule table foobar foreign_table import numeric
+	cd valve.rs && source .venv/bin/activate && test/round_trip.sh postgresql:///valve_postgres test/src/table.tsv
+	cd valve.rs && source .venv/bin/activate && scripts/export.py messages postgresql:///valve_postgres test/output/ $(tables_to_test)
 	cd valve.rs && diff -q test/expected/messages.tsv test/output/messages.tsv
 	cd valve.rs && source .venv/bin/activate && test/main.py --insert_update test/src/table.tsv postgresql:///valve_postgres > /dev/null
 	cd valve.rs && source .venv/bin/activate && test/insert_update.sh postgresql:///valve_postgres
@@ -46,10 +44,9 @@ pg_test: valve.rs/target/release/ontodev_valve cleantestout valve.rs/test/main.p
 
 sqlite_test: valve.rs/target/release/ontodev_valve cleandb cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/build/ valve.rs/test/output
 	@echo "Testing valve on sqlite ..."
-	cp -pf test/expected/* valve.rs/test/expected/
 	cd valve.rs && source .venv/bin/activate && test/main.py --load test/src/table.tsv build/valve.db > /dev/null
-	cd valve.rs && source .venv/bin/activate && test/round_trip.sh build/valve.db
-	cd valve.rs && source .venv/bin/activate && scripts/export.py messages build/valve.db test/output/ column datatype prefix rule table foobar foreign_table import numeric
+	cd valve.rs && source .venv/bin/activate && test/round_trip.sh build/valve.db test/src/table.tsv
+	cd valve.rs && source .venv/bin/activate && scripts/export.py messages build/valve.db test/output/ $(tables_to_test)
 	cd valve.rs && diff -q test/expected/messages.tsv test/output/messages.tsv
 	cd valve.rs && source .venv/bin/activate && test/main.py --insert_update test/src/table.tsv build/valve.db > /dev/null
 	cd valve.rs && source .venv/bin/activate && test/insert_update.sh build/valve.db

@@ -25,9 +25,10 @@ See the file `test/main.py` for usage examples.
 
 ## API reference
 
-### `configure_and_or_load(table_table, db_path, load)`
+### `configure_and_or_load(table_table, db_path, load, verbose)`
 
-Given a path to a table table file (table.tsv), a directory in which to find/create a database: configure the database using the configuration which can be looked up using the table table, and optionally load it if the `load` flag is set to true.
+Given a path to a table table file (table.tsv), a directory in which to find/create a database: configure the database using the configuration which can be looked up using the table table, and optionally load it if the `load` flag is set to true. If the `verbose` flag is also set to true, output progress messages while loading.
+
 
 Returns the configuration map back as a JSON string.
 
