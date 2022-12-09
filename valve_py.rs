@@ -28,7 +28,8 @@ fn get_connection_string(db_path: &str) -> String {
 
 /// Given a path to a table table file (table.tsv), a directory in which to find/create a database:
 /// configure the database using the configuration which can be looked up using the table table,
-/// and optionally load it if the `load` flag is set to true.
+/// and optionally load it if the `load` flag is set to true. If the `verbose` flag is also set to
+/// true, output progress messages while loading.
 #[pyfunction]
 fn configure_and_or_load(
     table_table: &str,
