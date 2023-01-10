@@ -27,7 +27,7 @@ valve.rs/test/output: | valve.rs
 
 test: pg_test sqlite_test
 
-tables_to_test = column datatype rule table table1 table2 table3 table4 table5 table6
+tables_to_test = column datatype rule table table1 table2 table3 table4 table5 table6 table7
 
 pg_test: valve.rs/target/release/ontodev_valve cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/test/output
 	@echo "Testing valve on postgresql ..."
@@ -40,6 +40,8 @@ pg_test: valve.rs/target/release/ontodev_valve cleantestout valve.rs/test/main.p
 	cd valve.rs && diff -q test/expected/messages.tsv test/output/messages.tsv
 	cd valve.rs && source .venv/bin/activate && test/main.py --insert_update test/src/table.tsv postgresql:///valve_postgres > /dev/null
 	cd valve.rs && source .venv/bin/activate && test/insert_update.sh postgresql:///valve_postgres
+	cd valve.rs && source .venv/bin/activate && scripts/export.py messages postgresql:///valve_postgres test/output/ $(tables_to_test)
+	cd valve.rs && diff -q test/expected/messages_after_api_test.tsv test/output/messages.tsv
 	@echo "Test succeeded!"
 
 sqlite_test: valve.rs/target/release/ontodev_valve cleandb cleantestout valve.rs/test/main.py valve.rs/test/insert_update.sh | valve.rs/build/ valve.rs/test/output
@@ -50,6 +52,8 @@ sqlite_test: valve.rs/target/release/ontodev_valve cleandb cleantestout valve.rs
 	cd valve.rs && diff -q test/expected/messages.tsv test/output/messages.tsv
 	cd valve.rs && source .venv/bin/activate && test/main.py --insert_update test/src/table.tsv build/valve.db > /dev/null
 	cd valve.rs && source .venv/bin/activate && test/insert_update.sh build/valve.db
+	cd valve.rs && source .venv/bin/activate && scripts/export.py messages build/valve.db test/output/ $(tables_to_test)
+	cd valve.rs && diff -q test/expected/messages_after_api_test.tsv test/output/messages.tsv
 	@echo "Test succeeded!"
 
 rs-version := $(shell grep valve\.rs VALVE.VERSION |awk '{print $$2}')
