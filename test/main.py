@@ -5,11 +5,12 @@ import re
 import sys
 import time
 from ontodev_valve import (
-    configure_and_or_load,
+    valve,
     get_matching_values,
     validate_row,
     update_row,
     insert_new_row,
+    ValveCommand,
 )
 
 from argparse import ArgumentParser
@@ -56,9 +57,9 @@ if __name__ == "__main__":
             sys.exit(1)
 
     if args.load:
-        config = configure_and_or_load(args.table, args.db, True, False)
+        config = valve(args.table, args.db, ValveCommand.Load, False)
     elif args.insert_update:
-        config = configure_and_or_load(args.table, args.db, False, False)
+        config = valve(args.table, args.db, ValveCommand.Config, False)
         matching_values = get_matching_values(config, args.db, "table2", "child")
         matching_values = json.loads(matching_values)
         assert matching_values == [
