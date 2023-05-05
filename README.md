@@ -25,12 +25,16 @@ See the file `test/main.py` for usage examples.
 
 ## API reference
 
-### `configure_and_or_load(table_table, db_path, load, verbose)`
+### `valve(table_table, db_path, command, verbose, config_table="table")`
 
-Given a path to a table table file (table.tsv), a directory in which to find/create a database: configure the database using the configuration which can be looked up using the table table, and optionally load it if the `load` flag is set to true. If the `verbose` flag is also set to true, output progress messages while loading.
-
-
-Returns the configuration map back as a JSON string.
+Given a path to a configuration table (either a table.tsv file or a database containing a
+table named "table"), and a directory in which to find/create a database: configure the
+database using the configuration which can be looked up using the table table, and
+optionally create and/or load it according to the value of `command`
+(see [Valve Command](#ValveCommand)). If the `verbose` flag is set to true, output status
+messages while loading. If `config_table` (which defaults to "table") is given and
+`table_table` indicates a database, query the table called `config_table` for the
+table table information. Returns the configuration map as a String.
 
 ### `get_matching_values(config, db_path, table_name, column_name, matching_string)`
 
@@ -47,6 +51,22 @@ Given a config map represented as a JSON string, a directory in which the databa
 ### `insert_new_row(config, db_path, table_name, row)`
 
 Given a config map represented as a JSON string, a directory in which the database is located, a table name, and a row represented as a JSON string, insert the new row to the database.
+
+### ValveCommand
+
+The following commands may be used with the valve() function.
+
+#### ValveCommand.Config
+
+Configure but do not create or load.
+
+#### ValveCommand.Create
+
+Configure and create but do not load.
+
+#### ValveCommand.Load
+
+Configure, create, and load.
 
 ## Before creating a new release
 
